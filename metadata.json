@@ -1,0 +1,6 @@
+{
+  "name": "STRING X",
+  "description": "College-focused Garba & Navratri buddy-finder app with playful, interactive onboarding and countdown partner reveal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

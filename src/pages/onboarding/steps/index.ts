@@ -1,0 +1,9 @@
+export { Step01NameGender } from './Step01NameGender';
+export { Step02CampusHostel } from './Step02CampusHostel';
+export { Step03Age } from './Step03Age';
+export { Step04Photo } from './Step04Photo';
+export { Step05HeightWeight } from './Step05HeightWeight';
+export { Step06HomeState } from './Step06HomeState';
+export { Step07CollegeYear } from './Step07CollegeYear';
+export { Step08Course } from './Step08Course';
+export { Step09FaceVerification } from './Step09FaceVerification';
