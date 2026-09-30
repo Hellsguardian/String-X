@@ -114,6 +114,45 @@ Client-writable profile fields are strictly:
 2. **University Foreign Key Resolution:** `university_id` must resolve against `public.universities` (`110b37d5-599c-4921-be80-17645f3b36b8` for Parul University, `5886d28b-2338-4ed0-b059-73324098b942` for Sumandeep Vidyapeeth) with whitespace normalization and case-insensitive comparison. Failed resolutions log structured errors, block step progression, and never overwrite existing values with `NULL`. Incremental updates (e.g. hostel selection) preserve the resolved `university_id`.
 3. **Database as Single Source of Truth for Completion:** A user is completely registered if and only if `onboarding_status = 'completed'` AND `is_profile_completed = true`. Returning completed users bypass onboarding and are routed directly to Page 12 (`AppRoute.HOME`). Incomplete users resume at their recorded step without duplicate profile row creation.
 
+### 2.9 Event Registration & Preferences Architecture (Phase 1 Database Cleanup)
+The event registration system was streamlined in Phase 1 (`20260930000001_cleanup_event_registration_schema.sql`):
+1. **Consolidated Questionnaire Telemetry (`event_preferences`):**
+   - **`partner_gender_preference`:** Moved directly into `event_preferences` (`TEXT NOT NULL DEFAULT 'Open to Anyone'`, with check constraint `CHECK (partner_gender_preference IN ('Girls', 'Guys', 'Open to Anyone'))`).
+   - **`most_excited_1`, `most_excited_2`, `most_excited_3`:** Three nullable `TEXT` columns added directly to `event_preferences` representing the student's top three selected vibes for the festival (e.g. `'💃 Garba'`, `'📸 Outfits, Photos & Reels'`, `'🍜 Food & Late-Night Plans'`).
+   - **Retained `created_at`:** Records when the preference telemetry was captured.
+   - **Removed Telemetry Fields:** `is_submitted`, `submitted_at`, and `updated_at` were dropped from `event_preferences` to avoid redundancy with `event_registrations.registered_at`.
+2. **Retired Tables:**
+   - **`public.event_vibe_tags`:** Dropped. Festival excitement selections are stored directly in `most_excited_1`, `most_excited_2`, and `most_excited_3`.
+   - **`public.match_preferences`:** Dropped. Matching partner gender preference is stored directly in `event_preferences.partner_gender_preference`.
+3. **Preserved Junction Architecture:**
+   - `public.interests` and `public.user_interests` remain the authoritative many-to-many relationship for student interests and are completely unchanged. They are never inlined into `event_preferences`.
+
+### 2.10 Automated Single-Value Match Assignment (Phase 2 Matching Implementation)
+The event-scoped manual matching workflow was automated in Phase 2 (`20261001000001_event_registration_match_sync.sql`):
+1. **Single-Value Assignment Column (`event_registrations.matched_with`):**
+   - References `public.profiles(user_code)` (`ON DELETE SET NULL`), enabling administrators to assign matches via user codes (e.g. `SX001 -> matched_with = SX005`).
+   - Guarded by partial unique index `idx_uq_event_registrations_matched_with` on `(event_id, matched_with) WHERE matched_with IS NOT NULL`, preventing multiple active claims on the same partner within a festival.
+2. **Automated Synchronization Trigger (`trg_sync_event_registration_match`):**
+   - Orchestrated by `public.sync_event_registration_match()` (`SECURITY DEFINER`, search_path secured, recursion controlled via `pg_trigger_depth() > 1`).
+   - Automatically synchronizes reciprocal registrations: setting `SX001.matched_with = SX005` immediately updates `SX005.matched_with = SX001`.
+   - Pipeline flow:
+     ```
+     event_registrations.matched_with
+             ↓
+     synchronization trigger (trg_sync_event_registration_match)
+             ↓
+     matches (canonical pair LEAST / GREATEST, status='active', manual)
+             ↓
+     connections (status='pending', user_a_revealed=false, user_b_revealed=false)
+     ```
+3. **Reassignment, Clearing & Collision Handling:**
+   - Clearing (`matched_with = NULL`) resets the partner's registration, marks the old match `'cancelled'`, and marks connection `'unmatched'`.
+   - Reassignment (e.g. `SX001` from `SX005` to `SX007`) retires previous pairings to `'replaced'` and clears previous partner links before establishing the new active pairing.
+   - Enforces `trg_check_single_active_match` and rejects self-matching, non-existent users, or un-enrolled students with PostgreSQL exceptions.
+4. **Admin Projections & Client Routing:**
+   - `public.v_admin_users` exposes `registered_matched_with`.
+   - Frontend "Find My Match" CTA intelligently checks questionnaire completion first (routes to Step 9 if incomplete), then verifies canonical active match in the database (routes to Page 23 Countdown if active, or Page 22 Waiting Radar if searching).
+
 ---
 
 ## 3. Server-Controlled vs User-Editable Fields

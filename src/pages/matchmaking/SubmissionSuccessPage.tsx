@@ -13,11 +13,12 @@ export const SubmissionSuccessPage: React.FC<SubmissionSuccessPageProps> = ({
   onContinueToCountdown,
   onEnterMainApp,
 }) => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
 
   return (
     <SubmissionSuccessScreen
       profile={profile}
+      userId={user?.id || profile.id}
       collegeName={profile.collegeName}
       onBack={onBack}
       onContinueToCountdown={onContinueToCountdown}

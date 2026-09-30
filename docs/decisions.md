@@ -120,4 +120,64 @@ This document records the foundational architectural decisions made for the STRI
 - **Reason:** Biometric face verification evidence is strictly private and must never be exposed as a public avatar, match photo, or card display.
 - **Consequences:** Zero leakage of verification evidence into public visual components.
 
+---
+
+## ADR 13: Navratri Event Questionnaire Routing & Completion Guard Isolation
+- **Context:** On the Home screen (`AppRoute.HOME`), the Navratri 2026 event card features a "Find My Match →" CTA button designed to launch the 9-step event questionnaire starting at Step 9 (`NavratriStep01Partner`) in `OnboardingFlowContainer`. However, clicking the button had no visible effect. In `AppShell`, a post-authentication `useEffect` checked `if (isOnboardingCompleted)` and automatically redirected any active `screen === AppRoute.ONBOARDING` back to `AppRoute.HOME`, treating all onboarding screens as core registration steps and immediately canceling the navigation.
+- **Decision:**
+  1. Refine the completion guard in `AppShell` so it strictly bypasses core onboarding steps (`screen === AppRoute.ONBOARDING && onboardingStep < 9`).
+  2. Permit completed users to navigate into the Navratri event matching questionnaire when `onboardingStep >= 9`.
+  3. Wire the Home screen CTA button (`id="find-my-match-btn"`) to dispatch `navigateTo(AppRoute.ONBOARDING, 9)` and `setOnboardingStep(9)`.
+  4. Preserve the entire existing 9-step Navratri questionnaire (`NavratriStep01Partner` through `NavratriStep09Instagram`), `SubmissionSuccessPage` (`AppRoute.SUCCESS`), and `CountdownPage` (`AppRoute.COUNTDOWN`).
+- **Reason:** Enables completed users to participate in campus events without re-triggering core registration or being bounced back to Home.
+- **Consequences:** Seamless entry into Navratri 2026 matchmaking flow from Home with zero disruption to core auth or profile state.
+
+---
+
+## ADR 14: Matchmaking Waiting Screen Indefinite Search & Real Match Gating
+- **Context:** The matchmaking waiting radar screen (`SubmissionSuccessScreen`) previously auto-transitioned to the "Strings Attached" countdown screen after a hardcoded 5-second `setInterval` curve, regardless of whether a partner match actually existed. Screen clicks also triggered immediate fake match transitions.
+- **Decision:**
+  1. Remove hardcoded timers, progress === 100 auto-navigation, and container click triggers from `SubmissionSuccessScreen`.
+  2. Implement an explicit matchmaking state machine (`'searching' | 'evaluating' | 'matched' | 'error'`).
+  3. Integrate `matchmakingService.checkActiveMatch()` and `subscribeToMatches()` querying `public.v_my_matches` and `public.matches` where `(user_a_id = auth.uid() OR user_b_id = auth.uid()) AND status = 'active'`.
+  4. Keep the user on the matchmaking radar screen indefinitely while searching or evaluating. Progress indicators cycle procedurally across wave steps without misleading users with a permanent 100%.
+  5. Only navigate to "Strings Attached" (`AppRoute.COUNTDOWN`) when a genuine match object is confirmed by the backend.
+  6. Display an inline retry/error state if network queries fail, maintaining visual radar animations and automatically retrying on the next poll cycle.
+- **Reason:** Guarantees honest user experience where the screen only confirms a match when an actual pairing exists in the database.
+- **Consequences:** Accurate real-time matchmaking synchronization without synthetic auto-completion.
+
+---
+
+## ADR 15: Phase 1 Database Cleanup — Consolidation of Event Preferences & Telemetry
+- **Context:**
+  1. `event_vibe_tags` was originally designed as a separate junction table for multi-selected excitement chips. However, the String X flow collects exactly up to 3 choices for "What are you most excited about this Navratri?" (`NavratriStep06Vibes`). Maintaining a separate junction table created unnecessary JOINs, foreign key cascades, and extra RLS policies.
+  2. `match_preferences` was originally created as a separate table for partner gender filtering per event (`user_id`, `event_id`, `partner_gender_preference`). Because every festival participant already completes an `event_registrations` -> `event_preferences` questionnaire record, isolating gender preference into a second table added redundant state management.
+  3. `event_preferences` carried redundant lifecycle columns (`is_submitted`, `submitted_at`, `updated_at`) that duplicated `event_registrations.status` and `event_registrations.registered_at`.
+- **Decision:**
+  1. Drop `public.event_vibe_tags`. In-line the 3 selected answers directly into `public.event_preferences` as `most_excited_1`, `most_excited_2`, and `most_excited_3` (`TEXT NULL`), preserving the exact option strings.
+  2. Drop `public.match_preferences`. In-line `partner_gender_preference` directly into `public.event_preferences` (`TEXT NOT NULL DEFAULT 'Open to Anyone'` with `CHECK (partner_gender_preference IN ('Girls', 'Guys', 'Open to Anyone'))`).
+  3. Drop `is_submitted`, `submitted_at`, and `updated_at` from `public.event_preferences`.
+  4. Retain `created_at TIMESTAMPTZ NOT NULL DEFAULT now()` on `event_preferences`.
+  5. Retain `public.interests` and `public.user_interests` completely unchanged as the relational many-to-many interest catalog.
+- **Reason:** Simplifies the event persistence layer, unifies all questionnaire telemetry into a single upsert, removes unused tables and dead columns, and keeps the database lean without breaking frontend behavior.
+- **Consequences:** Event registration telemetry is self-contained in `event_preferences`; zero orphan tables; full compatibility with existing UI steps.
+
+---
+
+## ADR 16: Automated Single-Value Match Assignment (Event Registration Trigger Synchronization)
+- **Context:** Previously, manual match assignment required invoking multi-parameter RPCs or writing directly to `public.matches` and `public.connections`. Festival administrators needed a streamlined workflow where setting `matched_with` (e.g. `SX001 -> matched_with = SX005`) on an `event_registrations` row immediately synchronizes the reciprocal registration, safely updates canonical `matches`, and establishes the corresponding `connections` row.
+- **Decision:**
+  1. Add `matched_with TEXT REFERENCES public.profiles(user_code) ON DELETE SET NULL` to `public.event_registrations`.
+  2. Add partial unique index `idx_uq_event_registrations_matched_with` on `(event_id, matched_with) WHERE matched_with IS NOT NULL` preventing multiple registrations from claiming the same partner within the same festival.
+  3. Implement `public.sync_event_registration_match()` trigger function with recursion control (`pg_trigger_depth() > 1`) and trigger `trg_sync_event_registration_match` on `BEFORE INSERT OR UPDATE OF matched_with`.
+  4. Enforce bidirectional sync: setting `SX001.matched_with = SX005` automatically sets `SX005.matched_with = SX001`.
+  5. Canonical match row synchronization: creates or reactivates one canonical `matches` record with `user_a_id = LEAST(u1, u2)` and `user_b_id = GREATEST(u1, u2)`, `match_source = 'manual'`, and `status = 'active'`, respecting `trg_check_single_active_match`.
+  6. Connection synchronization: creates or reactivates corresponding `connections` record with `status = 'pending'`, `user_a_revealed = false`, and `user_b_revealed = false`.
+  7. Safe reassignment & clearing: setting `SX001.matched_with = NULL` clears the reciprocal registration, sets old match to `'cancelled'`, and connection to `'unmatched'`. Reassigning to a new partner safely retires previous active pairings to `'replaced'` and clears previous partner links.
+  8. Validation & Safety: Rejects self-matching (`SX001 -> SX001`), missing partner profiles, and un-enrolled event partners with explicit PostgreSQL exceptions.
+  9. Update `public.v_admin_users` to expose `registered_matched_with`.
+  10. Implement intelligent "Find My Match" routing in the frontend: checks questionnaire completion first (routes to Step 9 if incomplete), then verifies canonical active match in the database (routes to Page 23 Countdown if active, or Page 22 Waiting Radar if searching).
+- **Reason:** Provides atomic, administrative simplicity with zero race conditions, guarantees canonical relational integrity, and keeps client security strictly contained.
+- **Consequences:** Administrators can execute match assignments via single-field edits; frontend waiting radar and countdown pages synchronize automatically.
+
 

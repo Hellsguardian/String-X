@@ -313,13 +313,22 @@ export function mapProfileToDb(
  */
 export function mapDbToProfile(
   db: DatabaseProfile | Record<string, any>,
-  primaryPhotoUrl?: string
+  primaryPhotoUrl?: string,
+  eventPrefData?: Record<string, any>
 ): UserProfile {
   const currentYear = new Date().getFullYear();
   const birthYear = db.birth_year ? Number(db.birth_year) : null;
   const age = birthYear ? Math.max(15, currentYear - birthYear) : 0;
 
+  const vibes: string[] = [
+    eventPrefData?.most_excited_1 || (db as any).most_excited_1,
+    eventPrefData?.most_excited_2 || (db as any).most_excited_2,
+    eventPrefData?.most_excited_3 || (db as any).most_excited_3,
+  ].filter(Boolean);
+
   return {
+    id: db.id || undefined,
+    userCode: db.user_code || undefined,
     collegeEmail: '',
     phone: (db as any).phone || '',
     collegeName: resolveUniversityName(db.university_id),
@@ -337,22 +346,26 @@ export function mapDbToProfile(
     department: resolveCourseName(db.course_id),
     faceVerificationPhoto: db.face_verification_path || (db as any).face_verification_photo || '',
     isFaceVerified: Boolean(db.face_verification_path || db.verification_status === 'verified' || db.verification_status === 'pending'),
-    garbaLevel: (db as any).garba_level || '',
+    garbaLevel: eventPrefData?.garba_level || (db as any).garba_level || '',
     garbaLevelTitle: '',
-    garbaEnergy: (db as any).garba_energy || '',
-    navratriVibes: (db as any).navratri_vibes || [],
-    interests: (db as any).interests || [],
-    favouriteEveningSpot: (db as any).favourite_evening_spot || '',
-    navratriExcitement: (db as any).navratri_excitement ?? 50,
-    partnerGenderPreference: ((db as any).partner_gender_preference as UserProfile['partnerGenderPreference']) || '',
+    garbaEnergy: eventPrefData?.garba_energy || (db as any).garba_energy || '',
+    navratriVibes: vibes.length > 0 ? vibes : ((db as any).navratri_vibes || []),
+    mostExcited1: eventPrefData?.most_excited_1 || (db as any).most_excited_1 || '',
+    mostExcited2: eventPrefData?.most_excited_2 || (db as any).most_excited_2 || '',
+    mostExcited3: eventPrefData?.most_excited_3 || (db as any).most_excited_3 || '',
+    interests: eventPrefData?.interests || (db as any).interests || [],
+    favouriteEveningSpot: eventPrefData?.favourite_evening_spot || (db as any).favourite_evening_spot || '',
+    navratriExcitement: eventPrefData?.navratri_excitement ?? (db as any).navratri_excitement ?? 50,
+    partnerGenderPreference: (eventPrefData?.partner_gender_preference || (db as any).partner_gender_preference || '') as UserProfile['partnerGenderPreference'],
     partnerVibePreference: (db as any).partner_vibe_preference || '',
-    answerLastRound: (db as any).answer_last_round || '',
-    answerPersonality: (db as any).answer_personality || '',
-    answerPartnerNewStep: (db as any).answer_partner_new_step || '',
+    answerLastRound: eventPrefData?.answer_last_round || (db as any).answer_last_round || '',
+    answerPersonality: eventPrefData?.answer_persona || (db as any).answer_personality || (db as any).answer_persona || '',
+    answerPartnerNewStep: eventPrefData?.answer_partner_new_step || (db as any).answer_partner_new_step || '',
     instagramId: db.instagram_id || '',
     onboardingStatus: (db as any).onboarding_status || 'in_progress',
     onboardingStep: db.onboarding_step ?? 1,
     isProfileCompleted: Boolean((db as any).is_profile_completed),
+    matchedWith: eventPrefData?.matched_with || (db as any).matched_with || undefined,
   };
 }
 
@@ -404,7 +417,49 @@ export const profileService = {
             console.warn('[profileService] Could not fetch primary profile photo:', photoErr);
           }
 
-          return successResult(mapDbToProfile(data, primaryPhotoUrl));
+          // Fetch festival registration and preferences to rehydrate event state
+          let eventPrefData: any = null;
+          try {
+            const { data: regData } = await (supabase
+              .from('event_registrations' as any) as any)
+              .select('id, matched_with')
+              .eq('user_id', userId)
+              .order('registered_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (regData?.id) {
+              const { data: prefData } = await (supabase
+                .from('event_preferences' as any) as any)
+                .select('*')
+                .eq('registration_id', regData.id)
+                .maybeSingle();
+
+              if (prefData) {
+                eventPrefData = { ...prefData, matched_with: regData.matched_with };
+              }
+
+              // Also fetch user interests from user_interests junction table
+              const { data: userInts } = await (supabase
+                .from('user_interests' as any) as any)
+                .select('interests (name)')
+                .eq('user_id', userId);
+
+              if (userInts && userInts.length > 0) {
+                const interestNames = userInts
+                  .map((ui: any) => ui.interests?.name)
+                  .filter(Boolean);
+                if (interestNames.length > 0) {
+                  eventPrefData = eventPrefData || {};
+                  eventPrefData.interests = interestNames;
+                }
+              }
+            }
+          } catch (eventErr) {
+            console.warn('[profileService] Could not rehydrate event preferences:', eventErr);
+          }
+
+          return successResult(mapDbToProfile(data, primaryPhotoUrl, eventPrefData));
         }
 
         // No profile row found yet

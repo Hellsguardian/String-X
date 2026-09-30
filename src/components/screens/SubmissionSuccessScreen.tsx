@@ -6,6 +6,7 @@ import { UserProfile } from '../../types';
 
 interface SubmissionSuccessScreenProps {
   profile?: UserProfile;
+  userId?: string;
   collegeName?: string;
   onBack?: () => void;
   onContinueToCountdown: () => void;
@@ -81,41 +82,51 @@ function generateRandomSignals(cycle: number): CandidateSignal[] {
   return signals;
 }
 
-// Live Search Status (Above Radar)
+import { matchmakingService, ActiveMatchResult } from '../../services/matchmakingService';
+
+export type MatchmakingState = 'searching' | 'evaluating' | 'matched' | 'error';
+
+// Live Search Status (Above Radar) - loops through natural evaluation phases
 const SEARCH_STATUS_MESSAGES = [
-  'Scanning nearby strings…',
   'Checking Garba vibes…',
-  'Matching shared interests…',
+  'Evaluating candidate compatibility…',
+  'Scanning campus…',
+  'Looking for compatible energy…',
+  'Finding your kind of people…',
+  'Scanning nearby strings…',
   'Comparing campus preferences…',
-  'Finding compatible energy…',
-  'Searching again…'
 ];
 
-// Human, social bottom status messages
+// Human, social bottom activity messages
 const BOTTOM_ACTIVITY_MESSAGES = [
   'Scanning campus strings…',
   'Finding your kind of people…',
   'Looking for your rhythm…',
   'Still searching…',
-  'Your string is out there…'
+  'Your string is out there…',
 ];
 
 export const SubmissionSuccessScreen: React.FC<SubmissionSuccessScreenProps> = ({
   profile,
+  userId,
   onBack,
   onContinueToCountdown,
 }) => {
+  const currentUserId = userId || profile?.id;
+  const [matchState, setMatchState] = useState<MatchmakingState>('searching');
+  const [activeMatch, setActiveMatch] = useState<ActiveMatchResult | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scanCycle, setScanCycle] = useState(0);
   const [signals, setSignals] = useState<CandidateSignal[]>(() => generateRandomSignals(0));
   const [searchStatusIndex, setSearchStatusIndex] = useState(0);
   const [bottomStatusIndex, setBottomStatusIndex] = useState(0);
-  const [progress, setProgress] = useState(34);
-  const [isMatchFound, setIsMatchFound] = useState(false);
+  const [progress, setProgress] = useState(24);
   const hasNavigatedRef = useRef(false);
 
-  // Every complete radar rotation (~3.0s), regenerate a new batch of 1 to 5 signals
+  // Every complete radar rotation (~3.0s), regenerate a new batch of 1 to 5 candidate signals
+  // Radar continues scanning indefinitely while searching
   useEffect(() => {
-    if (isMatchFound) return;
+    if (matchState === 'matched') return;
 
     const cycleInterval = setInterval(() => {
       setScanCycle(prev => {
@@ -126,75 +137,132 @@ export const SubmissionSuccessScreen: React.FC<SubmissionSuccessScreenProps> = (
     }, 3000);
 
     return () => clearInterval(cycleInterval);
-  }, [isMatchFound]);
+  }, [matchState]);
 
-  // Smoothly cycle search status above radar
+  // Smoothly cycle search status text above radar
   useEffect(() => {
-    if (isMatchFound) return;
+    if (matchState === 'matched') return;
 
     const statusTimer = setInterval(() => {
       setSearchStatusIndex(prev => (prev + 1) % SEARCH_STATUS_MESSAGES.length);
-    }, 2500);
+    }, 2600);
 
     return () => clearInterval(statusTimer);
-  }, [isMatchFound]);
+  }, [matchState]);
 
   // Smoothly cycle bottom human activity status
   useEffect(() => {
-    if (isMatchFound) return;
+    if (matchState === 'matched') return;
 
     const bottomTimer = setInterval(() => {
       setBottomStatusIndex(prev => (prev + 1) % BOTTOM_ACTIVITY_MESSAGES.length);
-    }, 2800);
+    }, 3000);
 
     return () => clearInterval(bottomTimer);
-  }, [isMatchFound]);
+  }, [matchState]);
 
-  // Natural fluctuating AI matchmaking curve
+  // Procedural scan progress: cycles through natural wave steps while searching/evaluating
+  // NEVER triggers navigation or sticks at 100% when no match exists
   useEffect(() => {
-    const curve = [34, 43, 52, 48, 61, 72, 68, 79, 88, 94, 100];
-    let step = 0;
+    if (matchState === 'matched') return;
+
+    const scanSteps = [24, 38, 49, 63, 75, 84, 91];
+    let stepIdx = 0;
 
     const progressTimer = setInterval(() => {
-      step++;
-      if (step < curve.length) {
-        setProgress(curve[step]);
-        if (curve[step] === 100) {
-          triggerMatchFound();
-          clearInterval(progressTimer);
-        }
-      } else {
-        triggerMatchFound();
-        clearInterval(progressTimer);
-      }
-    }, 550);
+      stepIdx = (stepIdx + 1) % scanSteps.length;
+      setProgress(scanSteps[stepIdx]);
+    }, 850);
 
     return () => clearInterval(progressTimer);
-  }, []);
+  }, [matchState]);
 
-  // Match found moment: brief focused celebration then automatic transition
-  const triggerMatchFound = () => {
+  // Real backend matching checker & subscription
+  // Indefinitely waits until an actual match is found in Supabase / backend
+  useEffect(() => {
+    if (matchState === 'matched') return;
+
+    let isMounted = true;
+
+    const performCheck = async () => {
+      try {
+        setMatchState(prev => (prev === 'error' ? 'evaluating' : (prev === 'searching' ? 'evaluating' : 'searching')));
+        const res = await matchmakingService.checkActiveMatch(currentUserId);
+        if (!isMounted) return;
+
+        if (res.error) {
+          console.warn('[MATCHMAKING_RADAR] Backend check notice:', res.error);
+          setMatchState('error');
+          setErrorMessage('Something interrupted the search. Trying again…');
+          return;
+        }
+
+        setErrorMessage(null);
+
+        if (res.data) {
+          // Actual confirmed match found in backend!
+          handleMatchConfirmed(res.data);
+        } else {
+          // Zero candidates / waiting for match -> remain searching indefinitely
+          setMatchState('searching');
+        }
+      } catch (err: any) {
+        if (!isMounted) return;
+        console.warn('[MATCHMAKING_RADAR] Poll exception:', err);
+        setMatchState('error');
+        setErrorMessage('Something interrupted the search. Trying again…');
+      }
+    };
+
+    // Immediate check on mount
+    performCheck();
+
+    // Regular polling interval (every 3.5s) to detect newly created matches
+    const pollInterval = setInterval(performCheck, 3500);
+
+    // Realtime Supabase channel subscription
+    let unsubscribe: (() => void) | undefined;
+    if (currentUserId) {
+      unsubscribe = matchmakingService.subscribeToMatches(
+        currentUserId,
+        (match) => {
+          if (isMounted) {
+            handleMatchConfirmed(match);
+          }
+        },
+        (err) => {
+          console.warn('[MATCHMAKING_RADAR] Realtime notice:', err);
+        }
+      );
+    }
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+      if (unsubscribe) unsubscribe();
+    };
+  }, [currentUserId, matchState]);
+
+  // Actual match confirmation handler: brief focused celebration then transition to Strings Attached
+  const handleMatchConfirmed = (match: ActiveMatchResult) => {
     if (hasNavigatedRef.current) return;
-    setIsMatchFound(true);
+    setActiveMatch(match);
+    setMatchState('matched');
     setProgress(100);
 
-    // Auto-navigate to next page after short match-detected animation (750ms)
+    // Allow user to observe the celebratory match-locked state before transitioning
     setTimeout(() => {
       if (!hasNavigatedRef.current) {
         hasNavigatedRef.current = true;
         onContinueToCountdown();
       }
-    }, 750);
+    }, 1200);
   };
+
+  const isMatchFound = matchState === 'matched';
 
   return (
     <div
-      onClick={() => {
-        // Quick tap accelerator for developers or impatient users
-        if (!isMatchFound) {
-          triggerMatchFound();
-        }
-      }}
       className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-between p-5 sm:p-6 pt-[max(16px,env(safe-area-inset-top,0px))] pb-[max(16px,env(safe-area-inset-bottom,0px))] bg-[#251436] text-white select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]"
     >
       {/* 8. SUBTLE AMBIENT LIFE: Soft background atmospheric glow & floating micro-particles */}
@@ -269,15 +337,23 @@ export const SubmissionSuccessScreen: React.FC<SubmissionSuccessScreenProps> = (
         <div className="h-6 mb-2 flex items-center justify-center">
           <AnimatePresence mode="wait">
             <motion.div
-              key={isMatchFound ? 'found' : searchStatusIndex}
+              key={isMatchFound ? 'found' : (errorMessage ? 'error' : searchStatusIndex)}
               initial={{ opacity: 0, y: 3, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -3, scale: 0.96 }}
               transition={{ duration: 0.2 }}
-              className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-[#1B0B2A]/80 border border-[#894EFF]/35 text-[11px] font-bold text-[#FFC928] shadow-[0_0_12px_rgba(137,78,255,0.15)]"
+              className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full border text-[11px] font-bold shadow-[0_0_12px_rgba(137,78,255,0.15)] ${
+                errorMessage
+                  ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                  : 'bg-[#1B0B2A]/80 border-[#894EFF]/35 text-[#FFC928]'
+              }`}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-[#FFC928] animate-pulse" />
-              <span>{isMatchFound ? '✨ Match signal synchronized!' : SEARCH_STATUS_MESSAGES[searchStatusIndex]}</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${errorMessage ? 'bg-amber-400' : 'bg-[#FFC928]'} animate-pulse`} />
+              <span>
+                {isMatchFound
+                  ? '✨ Match signal synchronized!'
+                  : (errorMessage || SEARCH_STATUS_MESSAGES[searchStatusIndex])}
+              </span>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -390,7 +466,11 @@ export const SubmissionSuccessScreen: React.FC<SubmissionSuccessScreenProps> = (
             <p className="text-[11px] font-bold text-[#FFC928] mt-1 text-center h-4">
               {isMatchFound
                 ? '✨ Match locked! Connecting string…'
-                : 'Evaluating candidate compatibility…'}
+                : (errorMessage
+                    ? 'Trying again…'
+                    : (matchState === 'evaluating'
+                        ? 'Evaluating candidate compatibility…'
+                        : 'Scanning campus for compatible energy…'))}
             </p>
           </div>
         </div>

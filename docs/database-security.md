@@ -132,9 +132,7 @@ $$\text{effective\_reveal} = \text{admin\_reveal} \lor \text{user\_a.is\_premium
 | `user_interests` | Read own interests | `authenticated` | `auth.uid() = user_id OR public.is_admin()` | Shared tags exposed in match highlights. |
 | `event_registrations`| Student registration | `authenticated` | `auth.uid() = user_id` | Prevents students from registering other accounts. |
 | `event_registrations`| Admin management | `authenticated` | `public.is_admin()` | Allows event check-in and attendee management. |
-| `event_preferences` | Owner-only access | `authenticated` | `EXISTS (reg. owner) OR public.is_admin()` | Raw questionnaire telemetry hidden from peers. |
-| `event_vibe_tags` | Owner-only tags | `authenticated` | `EXISTS (pref. owner) OR public.is_admin()` | Only student and admin can view vibe tags. |
-| `match_preferences` | Own match filters | `authenticated` | `auth.uid() = user_id OR public.is_admin()` | Partner preferences remain private to student. |
+| `event_preferences` | Owner-only access | `authenticated` | `EXISTS (reg. owner) OR public.is_admin()` | Telemetry, partner preference & excitement choices hidden from peers. |
 | `matches` | Participant read | `authenticated` | `auth.uid() IN (user_a_id, user_b_id)` | Normal users can only view their own pairings. |
 | `matches` | Admin full management| `authenticated` | `public.is_admin()` | Admin can create, update, reassign, and reveal matches. |
 | `connections` | Participant read | `authenticated` | `auth.uid() IN (user_a_id, user_b_id) OR public.is_admin()` | Participants view connection state. |

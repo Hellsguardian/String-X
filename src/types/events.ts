@@ -87,4 +87,5 @@ export interface UserEventRegistration {
   isCompleted: boolean;
   answers: Record<string, any>;
   completedAt?: number;
+  matchedWith?: string | null;
 }

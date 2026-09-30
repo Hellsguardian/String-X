@@ -13,6 +13,9 @@ import { CountdownPage } from '../pages/matchmaking/CountdownPage';
 import { FaceVerifiedTransitionPage } from '../pages/onboarding/FaceVerifiedTransitionPage';
 import { INITIAL_USER_PROFILE } from '../data/mockData';
 import { AppRoute } from '../types/navigation';
+import { profileService } from '../services/profileService';
+import { matchmakingService } from '../services/matchmakingService';
+import { eventService } from '../services/eventService';
 
 export const AppShell: React.FC = () => {
   const {
@@ -27,6 +30,7 @@ export const AppShell: React.FC = () => {
   } = useAppNavigation();
 
   const {
+    user,
     profile,
     updateProfile,
     completeOnboarding,
@@ -36,6 +40,7 @@ export const AppShell: React.FC = () => {
     isAuthenticated,
     isOnboardingCompleted,
     signInWithGoogle,
+    refreshProfile,
   } = useAuth();
 
   // Post-authentication routing (OAuth redirect or mount session check)
@@ -46,8 +51,9 @@ export const AppShell: React.FC = () => {
     if (isAuthenticated) {
       if (isOnboardingCompleted) {
         // CASE: Existing user with completed profile in database (onboarding_status = 'completed' AND is_profile_completed = true)
-        // Directly open Page 12 (AppRoute.HOME) and bypass onboarding
-        if (screen === AppRoute.LANDING || screen === AppRoute.ONBOARDING || screen === AppRoute.PHONE_SIGNUP) {
+        // Directly open Page 12 (AppRoute.HOME) and bypass core onboarding (steps 0 to 8)
+        // Allow navigation into Navratri event onboarding flow (onboardingStep >= 9)
+        if (screen === AppRoute.LANDING || screen === AppRoute.PHONE_SIGNUP || (screen === AppRoute.ONBOARDING && onboardingStep < 9)) {
           navigateTo(AppRoute.HOME);
         }
       } else if (screen === AppRoute.LANDING) {
@@ -57,7 +63,7 @@ export const AppShell: React.FC = () => {
         navigateTo(AppRoute.ONBOARDING, resumeStep);
       }
     }
-  }, [loading, profileLoading, isAuthenticated, isOnboardingCompleted, screen, profile.onboardingStep, navigateTo, setOnboardingStep]);
+  }, [loading, profileLoading, isAuthenticated, isOnboardingCompleted, screen, onboardingStep, profile.onboardingStep, navigateTo, setOnboardingStep]);
 
   // Clean URL hash fragments (e.g. Supabase #access_token=...) after OAuth callback
   useEffect(() => {
@@ -159,7 +165,26 @@ export const AppShell: React.FC = () => {
                 profile={profile}
                 onUpdateProfile={(updated) => updateProfile(updated, onboardingStep)}
                 onComplete={async () => {
-                  await completeOnboarding();
+                  const targetUserId = user?.id || profile.id;
+                  if (!targetUserId) {
+                    console.error('[AppShell] Cannot persist event registration: user is not authenticated.');
+                    alert('Please sign in to register for Navratri.');
+                    navigateTo(AppRoute.PHONE_SIGNUP);
+                    return;
+                  }
+
+                  const regRes = await eventService.submitEventAnswers('navratri', targetUserId, profile);
+                  if (regRes.error) {
+                    console.error('[AppShell] Event registration submission failed:', regRes.error);
+                    alert(`Failed to save Navratri registration: ${regRes.error.message || 'Please try again.'}`);
+                    return;
+                  }
+
+                  console.log('[AppShell] Event registration successfully persisted:', regRes.data);
+                  if (profile.instagramId) {
+                    await updateProfile({ instagramId: profile.instagramId });
+                  }
+                  await refreshProfile();
                   navigateTo(AppRoute.SUCCESS);
                 }}
                 onBackToLanding={() => navigateTo(AppRoute.PHONE_SIGNUP)}
@@ -176,8 +201,44 @@ export const AppShell: React.FC = () => {
             {/* Screen 12: STRING-X Home & Events Feed */}
             {screen === AppRoute.HOME && (
               <HomePage
-                onSelectNavratri={() => {
-                  // Direct navigation to Navratri event onboarding starting at Step 9 (Partner Preference)
+                onSelectNavratri={async () => {
+                  const targetUserId = user?.id || profile.id;
+
+                  // 1. If in-memory profile has a confirmed match already, go directly to Countdown
+                  if (profile.matchedWith) {
+                    navigateTo(AppRoute.COUNTDOWN);
+                    return;
+                  }
+
+                  // 2. If questionnaire is completed in-memory and not matched:
+                  // Directly navigate to Radar (SubmissionSuccessScreen).
+                  // Radar screen already performs immediate active-match checking & real-time polling on mount,
+                  // removing the need to block Home navigation on redundant match queries.
+                  if (profileService.isNavratriCompleted(profile)) {
+                    navigateTo(AppRoute.SUCCESS);
+                    return;
+                  }
+
+                  // 3. If in-memory profile does not show completed questionnaire (e.g. after fresh reload),
+                  // verify against database:
+                  if (targetUserId) {
+                    const regRes = await eventService.getEventRegistration('navratri', targetUserId);
+                    if (regRes.error) {
+                      alert(`Could not verify registration: ${regRes.error.message || 'Please check your connection and try again.'}`);
+                      return;
+                    }
+
+                    if (regRes.data?.isCompleted) {
+                      if (regRes.data.matchedWith) {
+                        navigateTo(AppRoute.COUNTDOWN);
+                      } else {
+                        navigateTo(AppRoute.SUCCESS);
+                      }
+                      return;
+                    }
+                  }
+
+                  // 4. Fresh / unregistered user: start questionnaire at Step 9
                   setOnboardingStep(9);
                   navigateTo(AppRoute.ONBOARDING, 9);
                 }}

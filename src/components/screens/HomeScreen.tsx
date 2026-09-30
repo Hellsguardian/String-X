@@ -1,12 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight } from 'lucide-react';
 import { UserProfile } from '../../types';
+import { profileService } from '../../services/profileService';
 
 interface HomeScreenProps {
   profile: UserProfile;
-  onSelectNavratri: () => void;
+  onSelectNavratri: () => void | Promise<void>;
   onOpenProfile: () => void;
+  ctaText?: string;
+  isChecking?: boolean;
 }
 
 /**
@@ -117,7 +120,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   profile,
   onSelectNavratri,
   onOpenProfile,
+  ctaText,
+  isChecking: isCheckingProp,
 }) => {
+  const [localChecking, setLocalChecking] = useState(false);
+  const isChecking = isCheckingProp ?? localChecking;
+
+  const handleSelectNavratri = async () => {
+    if (isChecking) return;
+    setLocalChecking(true);
+    try {
+      await onSelectNavratri();
+    } catch (err) {
+      console.error('[HomeScreen] Error navigating to event:', err);
+    } finally {
+      setLocalChecking(false);
+    }
+  };
+
   // Extract first name for display
   const firstName = profile.fullName
     ? profile.fullName.trim().split(' ')[0]
@@ -125,6 +145,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   // Main avatar displays only photoUrl uploaded in photo onboarding, never face verification
   const avatarPhoto = profile.photoUrl;
+
+  // Determine dynamic CTA button text based on event questionnaire completion
+  const isNavratriDone = profileService.isNavratriCompleted(profile);
+  const buttonLabel = ctaText || (isNavratriDone ? 'View Match Status' : 'Find My Match');
+  const displayLabel = isChecking ? 'Checking your match...' : buttonLabel;
 
   return (
     <div className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-start bg-[#E3E0F5] text-[#251436] select-none overflow-hidden relative font-['Plus_Jakarta_Sans',sans-serif]">
@@ -251,15 +276,32 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <div className="pt-1">
               <button
                 type="button"
-                onClick={onSelectNavratri}
-                className="w-full h-[44px] px-4 bg-[#894EFF] hover:bg-[#783cee] active:bg-[#6a2fdb] active:scale-[0.99] text-white font-bold text-xs sm:text-sm rounded-[13px] shadow-[0_2px_12px_rgba(137,78,255,0.4)] transition-all flex items-center justify-center gap-2 cursor-pointer group"
+                id="find-my-match-btn"
+                aria-label={isChecking ? 'Checking your match' : 'Find My Match for Navratri 2026'}
+                aria-busy={isChecking}
+                disabled={isChecking}
+                onClick={handleSelectNavratri}
+                className={`w-full h-[44px] px-4 font-bold text-xs sm:text-sm rounded-[13px] transition-all flex items-center justify-center gap-2 ${
+                  isChecking
+                    ? 'bg-[#894EFF]/85 text-white/90 cursor-not-allowed shadow-none'
+                    : 'bg-[#894EFF] hover:bg-[#783cee] active:bg-[#6a2fdb] active:scale-[0.99] text-white shadow-[0_2px_12px_rgba(137,78,255,0.4)] cursor-pointer group'
+                }`}
               >
-                <span>Find My Match</span>
-                <ArrowRight
-                  size={16}
-                  strokeWidth={2.5}
-                  className="transition-transform duration-200 group-hover:translate-x-1"
-                />
+                {isChecking ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />
+                    <span>{displayLabel}</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{displayLabel}</span>
+                    <ArrowRight
+                      size={16}
+                      strokeWidth={2.5}
+                      className="transition-transform duration-200 group-hover:translate-x-1"
+                    />
+                  </>
+                )}
               </button>
             </div>
           </div>

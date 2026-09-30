@@ -3,6 +3,8 @@
  */
 
 export interface UserProfile {
+  id?: string;
+  userCode?: string;
   // Step 1: Account
   collegeEmail: string;
   phone: string;
@@ -42,8 +44,11 @@ export interface UserProfile {
   garbaLevelTitle: string;
   garbaEnergy: 'Chill' | 'Casual' | 'Energetic' | 'No Breaks' | string;
 
-  // Step 18: Navratri Excitement Vibes (up to 3)
+  // Step 18: Navratri Excitement Vibes (up to 3 mapped to most_excited_1/2/3)
   navratriVibes?: string[];
+  mostExcited1?: string;
+  mostExcited2?: string;
+  mostExcited3?: string;
   
   // Step 13: Interests
   interests: string[];
@@ -70,6 +75,7 @@ export interface UserProfile {
   onboardingStatus?: string;
   onboardingStep?: number;
   isProfileCompleted?: boolean;
+  matchedWith?: string | null;
 }
 
 /**

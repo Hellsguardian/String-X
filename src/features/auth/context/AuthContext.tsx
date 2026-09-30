@@ -46,6 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const seededName = res.data.fullName || userMeta.full_name || userMeta.name || '';
       const seededProfile: UserProfile = {
         ...res.data,
+        id: res.data.id || userId,
         fullName: seededName,
         collegeEmail: res.data.collegeEmail || authUser?.email || '',
         // Google OAuth profile picture must NEVER automatically become the user's main photo
@@ -153,10 +154,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const profRes = await profileService.getProfile(res.data.user.id);
       const isExisting = profileService.isRegistrationCompleted(profRes.data);
       if (profRes.data && isExisting) {
-        setProfile(profRes.data);
+        setProfile({ ...profRes.data, id: profRes.data.id || res.data.user.id });
       } else {
-        // Carry forward verified phone number
-        setProfile((prev) => ({ ...prev, phone }));
+        // Carry forward verified phone number and userId
+        setProfile((prev) => ({ ...prev, id: res.data!.user!.id, phone }));
       }
       return { success: true, isExistingUser: isExisting };
     }

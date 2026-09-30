@@ -67,6 +67,7 @@ export interface Database {
         };
         Insert: Partial<Database['public']['Tables']['profiles']['Row']>;
         Update: Partial<Database['public']['Tables']['profiles']['Row']>;
+        Relationships: [];
       };
       deleted_accounts: {
         Row: Database['public']['Tables']['profiles']['Row'] & {
@@ -74,6 +75,7 @@ export interface Database {
         };
         Insert: Partial<Database['public']['Tables']['deleted_accounts']['Row']>;
         Update: Partial<Database['public']['Tables']['deleted_accounts']['Row']>;
+        Relationships: [];
       };
       profile_photos: {
         Row: {
@@ -89,42 +91,114 @@ export interface Database {
         };
         Insert: Partial<Database['public']['Tables']['profile_photos']['Row']>;
         Update: Partial<Database['public']['Tables']['profile_photos']['Row']>;
+        Relationships: [];
       };
       events: {
         Row: {
           id: string;
+          slug: string;
           title: string;
           tagline: string;
           short_desc: string;
           category: string;
           emoji: string;
-          date: string;
+          date?: string;
           location: string;
-          joined_count: number;
+          joined_count?: number;
           is_active: boolean;
           created_at: string;
         };
         Insert: Partial<Database['public']['Tables']['events']['Row']> & {
-          id: string;
+          id?: string;
           title: string;
         };
         Update: Partial<Database['public']['Tables']['events']['Row']>;
+        Relationships: [];
       };
-      event_participants: {
+      event_registrations: {
         Row: {
           id: string;
           event_id: string;
           user_id: string;
-          answers: Json;
-          is_completed: boolean;
-          created_at: string;
-          updated_at: string;
+          status: 'registered' | 'checked_in' | 'cancelled';
+          registered_at: string;
+          matched_with: string | null;
         };
-        Insert: Partial<Database['public']['Tables']['event_participants']['Row']> & {
+        Insert: {
+          id?: string;
           event_id: string;
           user_id: string;
+          status?: 'registered' | 'checked_in' | 'cancelled';
+          registered_at?: string;
+          matched_with?: string | null;
         };
-        Update: Partial<Database['public']['Tables']['event_participants']['Row']>;
+        Update: Partial<Database['public']['Tables']['event_registrations']['Row']>;
+        Relationships: [];
+      };
+      event_preferences: {
+        Row: {
+          id: string;
+          registration_id: string;
+          partner_gender_preference: 'Girls' | 'Guys' | 'Open to Anyone';
+          most_excited_1: string | null;
+          most_excited_2: string | null;
+          most_excited_3: string | null;
+          favourite_evening_spot: string | null;
+          navratri_excitement: number | null;
+          garba_level: string | null;
+          garba_energy: string | null;
+          answer_last_round: string | null;
+          answer_persona: string | null;
+          answer_partner_new_step: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          registration_id: string;
+          partner_gender_preference?: 'Girls' | 'Guys' | 'Open to Anyone';
+          most_excited_1?: string | null;
+          most_excited_2?: string | null;
+          most_excited_3?: string | null;
+          favourite_evening_spot?: string | null;
+          navratri_excitement?: number | null;
+          garba_level?: string | null;
+          garba_energy?: string | null;
+          answer_last_round?: string | null;
+          answer_persona?: string | null;
+          answer_partner_new_step?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['event_preferences']['Row']>;
+        Relationships: [];
+      };
+      interests: {
+        Row: {
+          id: string;
+          name: string;
+          slug: string;
+          category: string;
+          icon: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database['public']['Tables']['interests']['Row']>;
+        Update: Partial<Database['public']['Tables']['interests']['Row']>;
+        Relationships: [];
+      };
+      user_interests: {
+        Row: {
+          id: string;
+          user_id: string;
+          interest_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          interest_id: string;
+          created_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['user_interests']['Row']>;
+        Relationships: [];
       };
       matches: {
         Row: {
@@ -133,13 +207,37 @@ export interface Database {
           user_a_id: string;
           user_b_id: string;
           compatibility_score: number;
-          status: 'pending' | 'revealed' | 'connected';
+          status: 'pending' | 'revealed' | 'connected' | string;
           shared_highlights: string[] | null;
           created_at: string;
         };
         Insert: Partial<Database['public']['Tables']['matches']['Row']>;
         Update: Partial<Database['public']['Tables']['matches']['Row']>;
+        Relationships: [];
       };
+    };
+    Views: {
+      v_matched_profiles: {
+        Row: Record<string, any>;
+      };
+      v_my_matches: {
+        Row: Record<string, any>;
+      };
+      v_admin_users: {
+        Row: Record<string, any>;
+      };
+    };
+    Functions: {
+      [key: string]: {
+        Args: Record<string, any>;
+        Returns: any;
+      };
+    };
+    Enums: {
+      [key: string]: any;
+    };
+    CompositeTypes: {
+      [key: string]: any;
     };
   };
 }

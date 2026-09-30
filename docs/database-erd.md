@@ -27,10 +27,6 @@ erDiagram
     profiles ||--o{ event_registrations : "explicitly attends (1:N)"
     
     event_registrations ||--|| event_preferences : "completes (1:1)"
-    event_preferences ||--o{ event_vibe_tags : "selects (1:N)"
-    
-    profiles ||--o{ match_preferences : "specifies (1:N)"
-    events ||--o{ match_preferences : "applies to (1:N)"
     
     events ||--o{ matches : "contains (1:N)"
     profiles ||--o{ matches : "matched as user_a (1:N)"
@@ -209,11 +205,16 @@ erDiagram
         uuid user_id FK "References profiles.id"
         text status "'registered' | 'checked_in' | 'cancelled'"
         timestamptz registered_at
+        text matched_with FK "References profiles.user_code (Phase 2 auto-sync)"
     }
 
     event_preferences {
         uuid id PK
         uuid registration_id FK, UK "References event_registrations.id"
+        text partner_gender_preference "'Girls' | 'Guys' | 'Open to Anyone'"
+        text most_excited_1 "1st chosen excitement vibe chip"
+        text most_excited_2 "2nd chosen excitement vibe chip"
+        text most_excited_3 "3rd chosen excitement vibe chip"
         text favourite_evening_spot "Greenzee, Capitol, etc."
         smallint navratri_excitement "0 to 100 slider"
         text garba_level "'vibes' | 'basics' | 'decent' | 'beast'"
@@ -221,28 +222,7 @@ erDiagram
         text answer_last_round "1 AM last round response"
         text answer_persona "Persona response"
         text answer_partner_new_step "Partner reflex prompt"
-        boolean is_submitted "Submitted Page 21"
-        timestamptz submitted_at
         timestamptz created_at
-        timestamptz updated_at
-    }
-
-    event_vibe_tags {
-        uuid id PK
-        uuid preference_id FK "References event_preferences.id"
-        text vibe_tag "'garba' | 'outfits' | 'food' | 'people'"
-        timestamptz created_at
-    }
-
-    match_preferences {
-        uuid id PK
-        uuid user_id FK "References profiles.id"
-        uuid event_id FK "References events.id"
-        text partner_gender_preference "'Girls' | 'Guys' | 'Open to Anyone'"
-        text partner_vibe_preference "Target partner energy"
-        boolean same_college_only "Filter matches to same university"
-        timestamptz created_at
-        timestamptz updated_at
     }
 
     matches {

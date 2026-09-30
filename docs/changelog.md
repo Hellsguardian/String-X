@@ -4,6 +4,63 @@ All notable changes and architectural refactorings for STRING X are documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.7.0] - 2026-10-01
+
+### Added
+- **Phase 2 Matching Implementation (Automated Single-Value Match Assignment):**
+  - Added `matched_with TEXT REFERENCES public.profiles(user_code) ON DELETE SET NULL` to `public.event_registrations`.
+  - Added partial unique index `idx_uq_event_registrations_matched_with` on `(event_id, matched_with)` preventing multiple registrations from claiming the same partner within an event.
+  - Implemented `public.sync_event_registration_match()` trigger function with recursion guard (`pg_trigger_depth() > 1`) and `trg_sync_event_registration_match` trigger on `BEFORE INSERT OR UPDATE OF matched_with`.
+  - Enforced automatic bidirectional synchronization between registrations (e.g. `SX001.matched_with = 'SX005'` <-> `SX005.matched_with = 'SX001'`).
+  - Canonical match & connection synchronization: automatically creates or updates canonical pairings in `public.matches` (`user_a_id = LEAST(...)`, `user_b_id = GREATEST(...)`, `match_source = 'manual'`, `status = 'active'`) and corresponding `public.connections` (`status = 'pending'`).
+  - Safe reassignment, clearing (`matched_with = NULL`), collision handling (retiring existing active pairings to `'replaced'` / `'unmatched'`), and validation rejecting self-matching and un-enrolled event targets.
+  - Updated `public.v_admin_users` to expose `registered_matched_with`.
+  - Updated `src/lib/supabase/types.ts` with `matched_with: string | null` on `event_registrations`.
+  - Updated `src/services/eventService.ts` to expose `matchedWith` from `getEventRegistration`.
+  - Implemented intelligent "Find My Match" routing in `src/app/AppShell.tsx` and dynamic CTA button text in `src/components/screens/HomeScreen.tsx`.
+
+---
+
+## [2.6.0] - 2026-09-30
+
+### Changed
+- **Phase 1 Database Cleanup (Event Registration & Preferences):**
+  - Retired `public.event_vibe_tags` table: inlined user excitement selections directly into `public.event_preferences` across three nullable `TEXT` columns (`most_excited_1`, `most_excited_2`, `most_excited_3`), preserving exact UI card option titles.
+  - Retired `public.match_preferences` table: inlined `partner_gender_preference` directly into `public.event_preferences` (`TEXT NOT NULL DEFAULT 'Open to Anyone'`, `CHECK ('Girls', 'Guys', 'Open to Anyone')`).
+  - Removed obsolete telemetry columns from `public.event_preferences`: dropped `is_submitted`, `submitted_at`, and `updated_at`.
+  - Retained `created_at` timestamp on `public.event_preferences`.
+  - Preserved `public.interests` and `public.user_interests` completely unchanged as the relational many-to-many interest catalog.
+  - Created migration `20260930000001_cleanup_event_registration_schema.sql`.
+  - Updated `src/lib/supabase/types.ts` to include full database types for `event_preferences`, `event_registrations`, `interests`, and `user_interests`.
+  - Updated `src/services/eventService.ts` to persist event registration responses directly to `event_registrations` and `event_preferences` and sync selected interests to `user_interests`.
+
+---
+
+## [2.5.0] - 2026-09-30
+
+### Fixed
+- **Matchmaking Waiting Radar & Real Match Gating:**
+  - Removed premature automatic navigation from the matchmaking screen (`SubmissionSuccessScreen`) to "Strings Attached" (`CountdownScreen`).
+  - Replaced hardcoded progress timer and container click triggers with an indefinite searching/evaluating loop.
+  - Implemented explicit matchmaking state machine (`'searching' | 'evaluating' | 'matched' | 'error'`).
+  - Added backend match checking and real-time subscription via `matchmakingService.checkActiveMatch()` and `subscribeToMatches()`, querying `public.v_my_matches` and `public.matches`.
+  - Configured procedural wave progress indicator that cycles continuously during search without misleading users with a fake 100%.
+  - Navigation to "Strings Attached" now occurs strictly upon confirmation of a genuine match in the backend.
+
+---
+
+## [2.4.0] - 2026-09-30
+
+### Fixed
+- **Navratri 2026 "Find My Match" Navigation Flow:**
+  - Resolved issue where clicking "Find My Match →" on the Home screen appeared to do nothing.
+  - Root cause: `AppShell`'s post-authentication routing guard redirected any active `screen === AppRoute.ONBOARDING` back to `AppRoute.HOME` if `isOnboardingCompleted === true`, prematurely aborting entry into the Navratri questionnaire.
+  - Refined the guard to strictly bypass core registration steps (`onboardingStep < 9`), allowing completed users to seamlessly enter the Navratri matching flow (`onboardingStep >= 9`) starting at Step 9 (`NavratriStep01Partner`).
+  - Added accessible `id="find-my-match-btn"` and `aria-label` to the CTA button while preserving exact visual aesthetics and dimensions.
+  - Verified end-to-end browser navigation through Step 01 (Partner Preference) to Step 02 (Interests).
+
+---
+
 ## [2.3.0] - 2026-09-30
 
 ### Added
