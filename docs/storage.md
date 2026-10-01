@@ -1,80 +1,69 @@
 # STRING X — Cloud Storage Architecture
 
+> **Version:** 3.0.0  
+> **Status:** APPROVED ARCHITECTURAL SPECIFICATION (MULTI-BUCKET ISOLATION)  
+> **Target Engine:** Supabase Storage (S3-compatible)  
+
+---
+
 ## 1. Storage Overview
 
-STRING X utilizes **Supabase Storage** for managing binary media. 
+STRING X utilizes **Supabase Storage** for managing binary media across three isolated buckets:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                       SUPABASE STORAGE ARCHITECTURE                    │
+├───────────────────┬───────────────────┬────────────────────────────────┤
+│ BUCKET NAME       │ ACCESS POLICY     │ SECURITY OBJECTIVE             │
+├───────────────────┼───────────────────┼────────────────────────────────┤
+│ `profile-photos`  │ Public CDN Read   │ Avatars & Profile pictures     │
+│ `verifications`   │ Strictly Private  │ Biometric selfie evidence      │
+│ `event-assets`    │ Public CDN Read   │ Festival banners & promo media │
+└───────────────────┴───────────────────┴────────────────────────────────┘
+```
 
 **Critical Architectural Rule:**
-Binary image blobs must **NEVER** be stored directly inside PostgreSQL columns. PostgreSQL only stores the sanitized URL or bucket path reference (`photo_url`, `face_verification_photo`).
+Binary image blobs must **NEVER** be stored directly inside PostgreSQL columns. PostgreSQL only stores the sanitized URL or bucket storage path reference (`storage_path`, `face_verification_path`).
 
 ---
 
-## 2. Bucket Configuration
+## 2. Bucket Configurations
 
-### `profile-photos` Bucket
-- **Access Level:** Public read (for profile photos), Authenticated upload.
-- **Max File Size:** 5MB.
-- **Accepted MIME Types:**
-  - `image/jpeg` (`.jpg`, `.jpeg`)
-  - `image/png` (`.png`)
-  - `image/webp` (`.webp`)
+### 2.1 `profile-photos` Bucket (Public CDN)
+- **Access Level:** Public read, Authenticated owner upload/delete.
+- **Max File Size:** 5 MB.
+- **Accepted MIME Types:** `image/jpeg`, `image/png`, `image/webp`.
+- **File Path Convention:** `${userId}/photo_${timestamp}.${ext}`.
+- **Usage:** Main profile picture uploaded on Onboarding Step 04 (`Step04Photo`) and managed via `public.profile_photos`.
 
----
+### 2.2 `verifications` Bucket (Strictly Private)
+- **Access Level:** **Strictly Private.** Zero public CDN access. Authenticated owner upload; read permitted only to account owner and verified administrators (`public.is_admin()`).
+- **Max File Size:** 5 MB.
+- **Accepted MIME Types:** `image/jpeg`, `image/png`.
+- **File Path Convention:** `${userId}/face_verification_${timestamp}.${ext}`.
+- **Usage:** Live biometric selfies captured on Step 09 (`Step09FaceVerification`). Path referenced in `public.verification.face_verification_path`.
+- **Privacy Guarantee:** Verification selfies are NEVER used as public avatars, cards, or match imagery.
 
-## 3. File Path Conventions
-
-To enforce isolation between students and avoid filename collisions:
-
-```
-profile-photos/
-└── <user_id>/
-    ├── photo_<timestamp>.jpg              # Primary profile photo
-    └── face_verification_<timestamp>.jpg  # Live webcam verification selfie
-```
-
-- Every upload path is scoped under the student's unique `user_id` folder.
-- Timestamps prevent client-side browser cache staleness when a student updates their picture.
+### 2.3 `event-assets` Bucket (Public CDN)
+- **Access Level:** Public read, Admin-only upload/delete (`public.is_admin()`).
+- **Max File Size:** 10 MB.
+- **Accepted MIME Types:** `image/jpeg`, `image/png`, `image/webp`, `image/svg+xml`.
+- **Usage:** Festival banners, festival posters, and promotional graphics.
 
 ---
 
-## 4. Upload Flow & Service Integration
+## 3. Storage Security & RLS Policies
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant Cam as FaceVerificationCamera
-    participant Service as storageService
-    participant Supabase as Supabase Storage
-    participant Profile as profileService
-    participant DB as PostgreSQL
-
-    User->>Cam: Live selfie captured (dataUrl base64)
-    Cam->>Service: storageService.uploadDataUrl(dataUrl, userId)
-    Service->>Service: Converts base64 to binary Blob
-    Service->>Supabase: supabase.storage.from('profile-photos').upload(...)
-    Supabase-->>Service: Upload successful
-    Service->>Supabase: getPublicUrl(path)
-    Supabase-->>Service: Returns public CDN URL
-    Service-->>Cam: { publicUrl, path }
-    Cam->>Profile: updateProfile({ faceVerificationPhoto: publicUrl, isFaceVerified: true })
-    Profile->>DB: Saves publicUrl string to profiles table
-```
-
----
-
-## 5. Storage Security & RLS Policies
-
-Configured via Supabase SQL:
+Configured in Supabase SQL:
 
 ```sql
--- 1. Allow public read access to all profile photos
-CREATE POLICY "Public Read Profile Photos"
+-- 1. profile-photos: Public read
+CREATE POLICY "profile_photos_public_read"
 ON storage.objects FOR SELECT
 USING (bucket_id = 'profile-photos');
 
--- 2. Allow authenticated users to upload only into their own user_id folder
-CREATE POLICY "User Upload Profile Photos"
+-- 2. profile-photos: Owner upload
+CREATE POLICY "profile_photos_owner_insert"
 ON storage.objects FOR INSERT
 TO authenticated
 WITH CHECK (
@@ -82,21 +71,32 @@ WITH CHECK (
   (storage.foldername(name))[1] = auth.uid()::text
 );
 
--- 3. Allow users to delete their own photos
-CREATE POLICY "User Delete Profile Photos"
-ON storage.objects FOR DELETE
+-- 3. verifications: Private read (Owner + Admin)
+CREATE POLICY "verifications_private_read"
+ON storage.objects FOR SELECT
 TO authenticated
 USING (
-  bucket_id = 'profile-photos' AND
+  bucket_id = 'verifications' AND (
+    (storage.foldername(name))[1] = auth.uid()::text OR
+    public.is_admin() = true
+  )
+);
+
+-- 4. verifications: Owner upload
+CREATE POLICY "verifications_owner_insert"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (
+  bucket_id = 'verifications' AND
   (storage.foldername(name))[1] = auth.uid()::text
 );
 ```
 
 ---
 
-## 6. Offline / Mock Mode Handling
+## 4. Offline / Mock Mode Handling
 
 In `src/services/storageService.ts`:
-- If Supabase environment variables are missing, `uploadPhoto()` automatically invokes `URL.createObjectURL(fileOrBlob)`.
-- If an image is passed as a data URL (webcam capture), it returns the data URL directly.
+- If Supabase environment variables are missing or unconfigured, `uploadPhoto()` automatically invokes `URL.createObjectURL(fileOrBlob)`.
+- If an image is passed as a data URL (webcam capture), it returns the data URL directly in local development.
 - The UI components remain completely agnostic to cloud storage latency or configuration.

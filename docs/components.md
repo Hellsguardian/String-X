@@ -1,6 +1,8 @@
 # STRING X — Component Catalogue
 
-This document catalogues all reusable UI primitives, interactive inputs, illustrations, and developer tools in the STRING X codebase.
+> **Version:** 3.0.0  
+> **Status:** APPROVED ARCHITECTURAL SPECIFICATION (APPROVED UI/UX BASELINE)  
+> **Location:** `src/components/`  
 
 ---
 
@@ -13,9 +15,7 @@ This document catalogues all reusable UI primitives, interactive inputs, illustr
   - `children: React.ReactNode`
   - `onQuickFill?: () => void`
   - `onJumpToCombinedScreen?: () => void`
-- **State:** Stateless.
 - **Used In:** `AppShell.tsx`.
-- **Reusable:** Yes (Root wrapper for preview apps).
 
 ### `HeaderNav.tsx`
 - **File:** `src/components/ui/HeaderNav.tsx`
@@ -26,9 +26,7 @@ This document catalogues all reusable UI primitives, interactive inputs, illustr
   - `onBack?: () => void`
   - `onExit?: () => void`
   - `showProgress?: boolean` (Default: true)
-- **State:** Computes `progressPercent = Math.min(100, Math.round((currentStep / totalSteps) * 100))`.
 - **Used In:** `PhoneNumberSignUpScreen.tsx`, `OnboardingFlowContainer.tsx`.
-- **Reusable:** Yes.
 
 ### `PrimaryButton.tsx`
 - **File:** `src/components/ui/PrimaryButton.tsx`
@@ -40,9 +38,6 @@ This document catalogues all reusable UI primitives, interactive inputs, illustr
   - `variant?: 'primary' | 'secondary' | 'plum'`
   - `icon?: boolean`
   - `className?: string`
-- **State:** Motion tap scale `0.97`.
-- **Used In:** `LandingScreen`, `OnboardingFlowContainer`, and dialogs.
-- **Reusable:** Highly reusable.
 
 ---
 
@@ -57,7 +52,7 @@ This document catalogues all reusable UI primitives, interactive inputs, illustr
 | `CourseSelector` | `src/components/inputs/CourseSelector.tsx` | Department selection cards with festive icons | `collegeYear: string`, `value: string`, `onChange: (course) => void` |
 | `EveningSpotSelector` | `src/components/inputs/EveningSpotSelector.tsx` | Grid cards of Parul University campus hangout spots | `value?: string`, `onSelect: (spot) => void` |
 | `ExcitementSlider` | `src/components/inputs/ExcitementSlider.tsx` | Continuous slider tracking festival anticipation (0–100) | `value: number`, `onChange: (val) => void` |
-| `FaceVerificationCamera`| `src/components/inputs/FaceVerificationCamera.tsx` | Live camera preview with Pico face detection, oval tracker, and auto-capture | `initialPhoto?: string`, `isConfirmed?: boolean`, `onCapture: (url) => void`, `onRetake: () => void` |
+| `FaceVerificationCamera`| `src/components/inputs/FaceVerificationCamera.tsx` | Live camera preview with Pico face detection, oval tracker, GPS location capture timing, and auto-capture | `initialPhoto?: string`, `isConfirmed?: boolean`, `onCapture: (url, coords) => void`, `onRetake: () => void` |
 | `GarbaEnergySelector` | `src/components/inputs/GarbaEnergySelector.tsx` | Dancing energy level selector | `value: string`, `onChange: (energy) => void` |
 | `GarbaLevelSelector` | `src/components/inputs/GarbaLevelSelector.tsx` | 4-tier Garba proficiency cards (Zero to Beast) | `value: string`, `onChange: (level, title) => void` |
 | `GenderSelector` | `src/components/inputs/GenderSelector.tsx` | Segmented gender identity pills | `selectedGender: string`, `onSelect: (gender) => void` |
@@ -65,7 +60,7 @@ This document catalogues all reusable UI primitives, interactive inputs, illustr
 | `HorizontalHeightPicker`| `src/components/inputs/HorizontalHeightPicker.tsx` | Alternative horizontal scroll height picker | `value: number`, `onChange: (h) => void` |
 | `InterestChips` | `src/components/inputs/InterestChips.tsx` | Multi-select chips for campus hobbies (up to 6) | `selected: string[]`, `onChange: (chips) => void` |
 | `NavratriExcitementSelector`| `src/components/inputs/NavratriExcitementSelector.tsx`| Festival highlights selection cards (max 3) | `selected: string[]`, `maxSelection?: number`, `onChange: (vibes) => void` |
-| `PhotoPicker` | `src/components/inputs/PhotoPicker.tsx` | File upload with fallback festival avatar presets | `value: string`, `additionalPhotos?: string[]`, `onChange: (url, list) => void` |
+| `PhotoPicker` | `src/components/inputs/PhotoPicker.tsx` | Dedicated main DP photo upload with avatar presets | `value: string`, `additionalPhotos?: string[]`, `onChange: (url, list) => void` |
 | `PromptCardSelector` | `src/components/inputs/PromptCardSelector.tsx` | Multiple-choice cards for personality questions | `options: any[]`, `selected: string`, `onSelect: (text) => void` |
 | `StateSelectorModal` | `src/components/inputs/StateSelectorModal.tsx` | Indian States and UTs modal picker with search filter | `value: string`, `onChange: (state) => void` |
 | `WeightDialCircle` | `src/components/inputs/WeightDialCircle.tsx` | Circular rotary weight dial with inertial drag feedback | `value: number`, `onChange: (kg) => void` |
@@ -73,7 +68,20 @@ This document catalogues all reusable UI primitives, interactive inputs, illustr
 
 ---
 
-## 3. Illustrations & Badges (`src/components/illustrations/`)
+## 3. Screen Views & Modals
+
+### `NotificationPanel` (Page 12)
+- **Location:** Inside `HomePage.tsx` header.
+- **Behavior:** Renders an animated slide-over panel.
+- **Initial State:** Initial notification count is **0** with an empty state ("You're all caught up! ✨") and zero demo/fake notifications.
+
+### `MatchRevealModal` (Page 23)
+- **Location:** Rendered inside `CountdownPage.tsx`.
+- **Behavior:** Revealed when match pairing is active and effectively revealed. Displays partner's photo, name, course, hostel, compatibility score, shared vibes, and verified Instagram handle.
+
+---
+
+## 4. Illustrations & Badges (`src/components/illustrations/`)
 
 ### `GarbaIllustrations.tsx`
 - **`PlayfulBadge`**: Angled, bold sticker badge (colors: `'pink'`, `'yellow'`, `'purple'`, `'teal'`; tilts: `'left'`, `'right'`, `'none'`).
@@ -83,7 +91,7 @@ This document catalogues all reusable UI primitives, interactive inputs, illustr
 
 ---
 
-## 4. Developer Tools (`src/components/dev/`)
+## 5. Developer Tools (`src/components/dev/`)
 
 ### `DevScreenRail.tsx`
 - **File:** `src/components/dev/DevScreenRail.tsx`

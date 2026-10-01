@@ -1,84 +1,71 @@
 # STRING X — Documentation Audit & Verification Report
 
-This audit verifies all technical documentation against the actual codebase implementation as of September 2026.
+> **Version:** 3.0.0  
+> **Status:** APPROVED COMPLETE DOCUMENTATION AUDIT  
+> **Audit Scope:** All 29 Markdown documentation files across root and `docs/`  
 
 ---
 
-## 1. Documentation Files Created
-
-The documentation suite resides in the [`docs/`](./) directory, along with updated root guides:
+## 1. Documentation Inventory & Status
 
 | File Path | Topic | Verification Status |
 |---|---|---|
+| [`README.md`](../README.md) | Root Project Overview & Quick Start | **VERIFIED** |
+| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Engineering Guidelines & PR Standards | **VERIFIED** |
+| [`ARCHITECTURE_REFACTOR_PLAN.md`](../ARCHITECTURE_REFACTOR_PLAN.md) | Historical Architecture Refactor Plan | **PRESERVED HISTORICAL** |
+| [`ARCHITECTURE_REFACTOR_REPORT.md`](../ARCHITECTURE_REFACTOR_REPORT.md) | Historical Refactor Execution Report | **PRESERVED HISTORICAL** |
 | [`docs/README.md`](./README.md) | Documentation Index & Tech Stack | **VERIFIED** |
 | [`docs/architecture.md`](./architecture.md) | Layer Isolation, Data Flow & Philosophy | **VERIFIED** |
-| [`docs/database.md`](./database.md) | PostgreSQL Schema, Tables, and RLS | **VERIFIED** |
-| [`docs/authentication.md`](./authentication.md) | Supabase Auth & Phone OTP State Machine | **VERIFIED** |
-| [`docs/routing.md`](./routing.md) | AppRoute Keys & DevScreenRail Mapping | **VERIFIED** |
+| [`docs/database.md`](./database.md) | PostgreSQL Schema, Tables, RPCs, and Triggers | **VERIFIED** |
+| [`docs/database-erd.md`](./database-erd.md) | 18 Physical Tables & 3 Projection Views ERD | **VERIFIED** |
+| [`docs/database-security.md`](./database-security.md) | RLS Matrix, CLS, and Threat Model | **VERIFIED** |
+| [`docs/migrations.md`](./migrations.md) | Sequential 16-Migration Manifest | **VERIFIED** |
+| [`docs/authentication.md`](./authentication.md) | Google OAuth, Parul University Allowlist & Deadlock Recovery | **VERIFIED** |
+| [`docs/routing.md`](./routing.md) | Route Directory, Find My Match State Machine & DevRail | **VERIFIED** |
 | [`docs/onboarding.md`](./onboarding.md) | Steps 00–08 (Core) & 09–17 (Navratri) | **VERIFIED** |
-| [`docs/matchmaking.md`](./matchmaking.md) | Scoring Vectors, Radar & Countdown Reveal | **VERIFIED** |
-| [`docs/design.md`](./design.md) | Color Tokens, Neo-Brutalist Styling & Spacing | **VERIFIED** |
-| [`docs/components.md`](./components.md) | UI Primitives, Inputs, and Badges Catalogue | **VERIFIED** |
+| [`docs/matchmaking.md`](./matchmaking.md) | Scoring Vectors, Single-Value Assignment & Reveal | **VERIFIED** |
+| [`docs/design.md`](./design.md) | Color Tokens, Neo-Brutalist Styling & Badges | **VERIFIED** |
+| [`docs/components.md`](./components.md) | UI Primitives, Inputs, and Modal Catalogue | **VERIFIED** |
 | [`docs/services.md`](./services.md) | Service Layer Public API & Contracts | **VERIFIED** |
-| [`docs/state-management.md`](./state-management.md) | Context Boundaries & React vs DB State | **VERIFIED** |
-| [`docs/storage.md`](./storage.md) | Supabase Storage Bucket & Photo Paths | **VERIFIED** |
-| [`docs/security.md`](./security.md) | RLS Policies & Sanitization Standards | **VERIFIED** |
+| [`docs/state-management.md`](./state-management.md) | Context Boundaries, Deduplication & React vs DB State | **VERIFIED** |
+| [`docs/storage.md`](./storage.md) | Supabase Multi-Bucket Storage & Paths | **VERIFIED** |
+| [`docs/security.md`](./security.md) | RLS Policies & Privacy Standards | **VERIFIED** |
 | [`docs/environment.md`](./environment.md) | Vite Env Variables & Template Definitions | **VERIFIED** |
 | [`docs/development.md`](./development.md) | Local Dev Setup, Scripts & Shortcuts | **VERIFIED** |
 | [`docs/deployment.md`](./deployment.md) | Production Build, SPA Rewrites & CORS | **VERIFIED** |
 | [`docs/testing.md`](./testing.md) | Test Cases, Typechecks & Mobile Matrix | **VERIFIED** |
 | [`docs/troubleshooting.md`](./troubleshooting.md) | Diagnostic Symptoms, Causes & Solutions | **VERIFIED** |
 | [`docs/api.md`](./api.md) | Internal TypeScript Service API Signatures | **VERIFIED** |
-| [`docs/decisions.md`](./decisions.md) | Architecture Decision Records (ADRs 01–08) | **VERIFIED** |
-| [`docs/changelog.md`](./changelog.md) | Version History & Refactoring Log | **VERIFIED** |
+| [`docs/decisions.md`](./decisions.md) | Architecture Decision Records (ADRs 01–20) | **VERIFIED** |
+| [`docs/changelog.md`](./changelog.md) | Version History (v1.0.0 through v2.11.0) | **VERIFIED** |
 | [`docs/documentation-audit.md`](./documentation-audit.md) | This Audit Report | **VERIFIED** |
-| [`README.md`](../README.md) | Root Project Overview & Quick Start | **VERIFIED** |
-| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Engineering Guidelines & PR Standards | **VERIFIED** |
-| [`.env.example`](../.env.example) | Environment Template with Supabase Keys | **VERIFIED** |
 
 ---
 
-## 2. Verification Checklist Against Codebase
+## 2. Verification Checklist Against Active Implementation
 
-### 2.1 File Paths
-- [x] Every file path cited in all 22 documents exists at the exact specified directory.
-- [x] All 9 core step components (`Step01NameGender.tsx` through `Step09FaceVerification.tsx`) confirmed in `src/pages/onboarding/steps/`.
-- [x] All 9 Navratri event step components (`NavratriStep01Partner.tsx` through `NavratriStep09Instagram.tsx`) confirmed in `src/pages/events/navratri/steps/`.
-- [x] Model cascade `/models/facefinder` confirmed in `public/models/facefinder`.
+### 2.1 Database & Migrations
+- [x] All 16 sequential migrations in `supabase/migrations/` verified and documented.
+- [x] Active 18 tables verified: `universities`, `hostels`, `courses`, `interests`, `profiles`, `profile_photos`, `user_interests`, `events`, `event_registrations`, `event_preferences`, `matches`, `connections`, `user_blocks`, `user_reports`, `admin_users`, `allowed_auth_emails`, `platform_statistics`, `deleted_accounts`.
+- [x] Retired tables labeled as historical/removed: `event_vibe_tags`, `match_preferences`.
+- [x] `public.verification_state` ENUM (`pending`, `verified`, `rejected`) and bidirectional triggers (`trg_sync_verification_states`, `trg_sync_verification_to_profiles`) accurately documented.
+- [x] `public.platform_statistics` with realtime publication documented.
 
-### 2.2 Services & Methods
-- [x] `authService`: `sendPhoneOtp`, `verifyPhoneOtp`, `getSession`, `signOut`, `onAuthStateChange` confirmed.
-- [x] `profileService`: `getProfile`, `saveProfile`, `isCoreProfileCompleted`, `isNavratriCompleted` confirmed.
-- [x] `onboardingService`: `saveDraft`, `getDraft`, `clearDraft`, `validateStep` confirmed.
-- [x] `storageService`: `uploadPhoto`, `uploadDataUrl` confirmed.
-- [x] `eventService`: `getEvents`, `getEventById`, `submitEventAnswers`, `getEventRegistration` confirmed.
-- [x] `matchmakingService`: `getMatchesForEvent`, `getSneakPeekProfile`, `sendWave` confirmed.
+### 2.2 Authentication & Identity
+- [x] Google OAuth documented as primary authentication method.
+- [x] Parul University domain restriction (`@paruluniversity.ac.in`) and developer allowlist (`allowed_auth_emails`) verified.
+- [x] Profile identity columns (`email`, `enrollment_no`) and triggers verified.
+- [x] Phone OTP explicitly marked as locked / legacy prototype.
+- [x] Server-side atomic account deletion via `delete_user_account()` RPC verified.
 
-### 2.3 Database Schemas
-- [x] `profiles` table: Matches `Database['public']['Tables']['profiles']` in `src/lib/supabase/types.ts`.
-- [x] `events` table: Matches `Database['public']['Tables']['events']`.
-- [x] `event_participants` table: Matches `Database['public']['Tables']['event_participants']`.
-- [x] `matches` table: Matches `Database['public']['Tables']['matches']`.
-- [x] Non-implemented planned tables (`universities`, `hostels`, `user_match_waves`) are explicitly tagged as `STATUS: PLANNED`.
+### 2.3 Routing & Find My Match Flow
+- [x] Authoritative database check for event registration documented.
+- [x] State machine: No registration $\to$ Step 9; Registered + `matched_with IS NULL` $\to$ Radar (Page 22); Registered + `matched_with` $\to$ Countdown (Page 23).
+- [x] Verification rejection access gating documented.
+- [x] All 24 screens in `DEV_SCREEN_MAP` verified.
 
-### 2.4 Route Mappings
-- [x] All 7 primary routes in `AppRoute` (`landing`, `phone-signup`, `onboarding`, `home`, `profile`, `success`, `countdown`) mapped in `src/types/navigation.ts`.
-- [x] All 24 screen steps in `DEV_SCREEN_MAP` (`src/constants/routes.ts`) match `DevScreenRail.tsx`.
-
-### 2.5 Design Tokens
-- [x] All HEX values (`#251436`, `#E3E0F5`, `#894EFF`, `#F02A8A`, `#FFC928`, `#08A98D`, `#D4CEEF`) verified against `src/index.css`.
-- [x] Font family `'Plus Jakarta Sans'` verified against `index.html` and Tailwind utility classes.
-
----
-
-## 3. Known Technical Debt & Future Maintenance Triggers
-
-1. **Live Supabase Vector Matchmaking Engine:**
-   - *Current:* Candidate matches are returned via mock logic in `matchmakingService.ts`.
-   - *Maintenance Trigger:* When implementing production PostgreSQL cosine similarity / vector embeddings, update `docs/matchmaking.md` and `docs/services.md`.
-2. **Normalized Campus Tables:**
-   - *Current:* Colleges and hostels are listed in `src/data/mockData.ts`.
-   - *Maintenance Trigger:* When migrating campus lists to PostgreSQL `universities` and `hostels` tables, update `docs/database.md`.
-3. **SMS Provider Integration:**
-   - *Current:* Operates with mock SMS in development.
-   - *Maintenance Trigger:* When Twilio / SMS provider is connected in the Supabase production dashboard, update `docs/authentication.md` and `docs/deployment.md`.
+### 2.4 UI / UX Approved Baseline
+- [x] Page 1: Google sign-in, locked phone option, "Student emails only." messaging.
+- [x] Page 11: Face verification with GPS location capture timing.
+- [x] Page 12: Notification panel with initial state = 0 notifications.
+- [x] All design tokens, colors, typography, borders, and shadows match the approved baseline.

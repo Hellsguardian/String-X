@@ -1,5 +1,10 @@
 # STRING X — Production Deployment Guide
 
+> **Version:** 3.0.0  
+> **Status:** APPROVED ARCHITECTURAL SPECIFICATION (GOOGLE OAUTH & SUPABASE CLOUD)  
+
+---
+
 ## 1. Environments Overview
 
 | Environment | Purpose | Database / Supabase | Hosting Platform |
@@ -22,8 +27,8 @@ This compiles TypeScript, optimizes Tailwind CSS, minifies JavaScript chunks, an
 dist/
 ├── index.html
 └── assets/
-    ├── index-BNG5zpXH.css   (~97 kB)
-    └── index-CrvOGr2O.js   (~760 kB)
+    ├── index-BNG5zpXH.css
+    └── index-CrvOGr2O.js
 ```
 
 To preview the compiled production output locally:
@@ -63,7 +68,7 @@ location / {
 
 ## 4. Supabase Storage CORS Setup
 
-To allow student webcam selfies and photo uploads from your production domain, ensure your Supabase Storage bucket (`profile-photos`) permits your domain's origin:
+To allow student webcam selfies and photo uploads from your production domain, ensure your Supabase Storage buckets permit your domain's origin:
 
 In the Supabase Dashboard:
 1. Navigate to **Storage** $\to$ **Settings** $\to$ **CORS Policies**.
@@ -79,7 +84,8 @@ In the Supabase Dashboard:
 
 - [ ] `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are configured in the hosting provider's dashboard.
 - [ ] No `SUPABASE_SERVICE_ROLE_KEY` is present in frontend variables.
+- [ ] Google OAuth is enabled in Supabase Authentication dashboard with valid Client ID & Client Secret.
+- [ ] Storage buckets `profile-photos` (Public), `verifications` (Private), and `event-assets` (Public) exist in Supabase Storage.
 - [ ] SPA fallback rewrite rule is verified (refreshing deep links returns `index.html`).
 - [ ] WebRTC camera permissions prompt properly over HTTPS.
-- [ ] Supabase Auth SMS provider (e.g. Twilio / MessageBird) is enabled and funded in production.
 - [ ] Public asset `/models/facefinder` loads over HTTPS without 404 errors.

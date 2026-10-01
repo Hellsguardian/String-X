@@ -400,11 +400,13 @@ export const AppShell: React.FC = () => {
       </DeviceFrame>
 
       {/* Development Navigation Rail */}
-      <DevScreenRail
-        currentScreen={screen}
-        onboardingStep={onboardingStep}
-        onNavigate={navigateByStepIndex}
-      />
+      {import.meta.env.DEV && (
+        <DevScreenRail
+          currentScreen={screen}
+          onboardingStep={onboardingStep}
+          onNavigate={navigateByStepIndex}
+        />
+      )}
     </>
   );
 };

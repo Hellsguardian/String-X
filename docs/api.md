@@ -1,6 +1,10 @@
 # STRING X — Internal Service API Specification
 
-This document specifies the internal TypeScript service API contracts implemented in `src/services/`.
+> **Version:** 3.0.0  
+> **Status:** APPROVED ARCHITECTURAL SPECIFICATION (TYPESCRIPT SERVICE APIS)  
+> **Location:** `src/services/`  
+
+---
 
 All services return the standard `ServiceResult<T>` wrapper:
 ```typescript
@@ -20,37 +24,30 @@ export interface ServiceError {
 
 ## 1. `authService` (`src/services/authService.ts`)
 
-### `authService.sendPhoneOtp(phone)`
-- **Input:** `phone: string` (e.g. `"+91 98251 44321"` or `"9825144321"`).
-- **Output:** `Promise<ServiceResult<{ message: string }>>`.
-- **Database Interaction:** Dispatches SMS verification code via `supabase.auth.signInWithOtp({ phone: formattedPhone })`.
-- **Errors:** Returns `errorResult` if phone format is invalid, network fails, or SMS provider rate limits.
+### `authService.signInWithGoogle()`
+- **Input:** None.
+- **Output:** `Promise<ServiceResult<{ url?: string }>>`.
+- **Behavior:** Initiates Supabase Google OAuth sign-in with client redirect.
 
----
-
-### `authService.verifyPhoneOtp(phone, token)`
-- **Input:**
-  - `phone: string`
-  - `token: string` (6-digit numeric string).
-- **Output:** `Promise<ServiceResult<{ user: User | null; session: Session | null }>>`.
-- **Database Interaction:** Calls `supabase.auth.verifyOtp({ phone, token, type: 'sms' })`.
-- **Errors:** Returns `errorResult` on token mismatch, expiration, or maximum attempts exceeded.
-
----
+### `authService.isEmailPermitted(email)`
+- **Input:** `email: string`.
+- **Output:** `Promise<boolean>`.
+- **Behavior:** Validates official university regex (`^[0-9]+@paruluniversity\.ac\.in$`) or presence in `public.allowed_auth_emails`.
 
 ### `authService.getSession()`
 - **Input:** None.
 - **Output:** `Promise<ServiceResult<{ user: User | null; session: Session | null }>>`.
-- **Database Interaction:** Reads cached JWT session via `supabase.auth.getSession()`.
-- **Errors:** Returns error if local session token is corrupted.
-
----
+- **Behavior:** Reads active JWT session via `supabase.auth.getSession()`.
 
 ### `authService.signOut()`
 - **Input:** None.
 - **Output:** `Promise<ServiceResult<void>>`.
-- **Database Interaction:** Calls `supabase.auth.signOut()` and purges local storage tokens.
-- **Errors:** None (idempotent).
+- **Behavior:** Calls `supabase.auth.signOut()` and purges local session tokens.
+
+### `authService.deleteAccount()`
+- **Input:** None.
+- **Output:** `Promise<ServiceResult<void>>`.
+- **Behavior:** Invokes `public.delete_user_account()` RPC and purges user storage assets.
 
 ---
 
@@ -59,35 +56,46 @@ export interface ServiceError {
 ### `profileService.getProfile(userId)`
 - **Input:** `userId: string` (UUID).
 - **Output:** `Promise<ServiceResult<UserProfile>>`.
-- **Database Interaction:** Executes SQL query:
-  ```sql
-  SELECT * FROM public.profiles WHERE user_id = $1 LIMIT 1;
-  ```
-- **Errors:** If no row exists (`PGRST116`), returns `INITIAL_USER_PROFILE` with zero error.
+- **Behavior:** Reads `public.profiles` where `id = userId` and latest verification attempt.
 
----
-
-### `profileService.saveProfile(userId, updates)`
+### `profileService.saveProfile(userId, updates, currentProfile?, step?)`
 - **Input:**
   - `userId: string`
   - `updates: Partial<UserProfile>`
+  - `currentProfile?: UserProfile`
+  - `step?: number`
 - **Output:** `Promise<ServiceResult<UserProfile>>`.
-- **Database Interaction:** Executes PostgreSQL `UPSERT` into `public.profiles` with `onConflict: 'user_id'`.
-- **Errors:** Returns `errorResult` on RLS policy rejection or database connection failure.
+- **Behavior:** Maps frontend fields to `public.profiles` columns and executes SQL `update` / `upsert`.
 
----
+### `profileService.savePrimaryPhoto(userId, photoDataUrl)`
+- **Input:** `userId: string`, `photoDataUrl: string`.
+- **Output:** `Promise<ServiceResult<{ publicUrl: string; photoId: string }>>`.
+- **Behavior:** Uploads to `profile-photos` CDN bucket and creates record in `public.profile_photos`.
 
-### `profileService.isCoreProfileCompleted(profile)`
-- **Input:** `profile: UserProfile | null`.
+### `profileService.submitFaceVerification(userId, photoDataUrl, coordinates?)`
+- **Input:** `userId: string`, `photoDataUrl: string`, `coordinates?: Coordinates`.
+- **Output:** `Promise<ServiceResult<{ storagePath: string }>>`.
+- **Behavior:** Uploads selfie to private `verifications` bucket and calls `public.submit_face_verification` RPC with GPS coordinates.
+
+### `profileService.submitDpVerification(photoId)`
+- **Input:** `photoId: string` (UUID).
+- **Output:** `Promise<ServiceResult<{ success: boolean }>>`.
+- **Behavior:** Calls `public.submit_dp_verification(UUID)` RPC to queue profile photo for moderation.
+
+### `profileService.completeStudentOnboarding(userId)`
+- **Input:** `userId: string`.
+- **Output:** `Promise<ServiceResult<{ success: boolean }>>`.
+- **Behavior:** Calls `public.complete_student_onboarding()` RPC to atomically validate fields and set `onboarding_status = 'completed'` and `is_profile_completed = true`.
+
+### `profileService.loadLookups()`
+- **Input:** None.
+- **Output:** `Promise<LookupData>`.
+- **Behavior:** Fetches universities, hostels, courses, and interests with a 5-second timeout and static fallback data.
+
+### `profileService.canUseMatching(profile)`
+- **Input:** `profile: UserProfile`.
 - **Output:** `boolean`.
-- **Database Interaction:** None (in-memory logic checking all 9 required fields).
-
----
-
-### `profileService.isNavratriCompleted(profile)`
-- **Input:** `profile: UserProfile | null`.
-- **Output:** `boolean`.
-- **Database Interaction:** None (in-memory validation).
+- **Behavior:** Returns `false` if `verification_status === 'rejected'` (or if DP/Face are explicitly rejected), `true` otherwise.
 
 ---
 
@@ -98,43 +106,29 @@ export interface ServiceError {
 - **Output:** `void`.
 - **Storage:** Writes JSON to `localStorage['stringx_onboarding_draft']`.
 
----
-
 ### `onboardingService.getDraft()`
 - **Input:** None.
 - **Output:** `Partial<UserProfile> | null`.
 - **Storage:** Reads from `localStorage['stringx_onboarding_draft']`.
 
----
-
 ### `onboardingService.validateStep(step, profile)`
-- **Input:**
-  - `step: number` (0 to 17).
-  - `profile: UserProfile`.
+- **Input:** `step: number` (0 to 17), `profile: UserProfile`.
 - **Output:** `boolean`.
-- **Logic:** Validates form inputs for the given step index according to campus rules.
+- **Logic:** Validates required form inputs for the given step index.
 
 ---
 
 ## 4. `storageService` (`src/services/storageService.ts`)
 
 ### `storageService.uploadPhoto(fileOrBlob, userId, fileNamePrefix?)`
-- **Input:**
-  - `fileOrBlob: File | Blob`
-  - `userId: string`
-  - `fileNamePrefix?: string` (Default: `'photo'`)
+- **Input:** `fileOrBlob: File | Blob`, `userId: string`, `fileNamePrefix?: string`.
 - **Output:** `Promise<ServiceResult<{ publicUrl: string; path: string }>>`.
-- **Storage Interaction:** Uploads binary payload to `profile-photos` bucket under `${userId}/${prefix}_${timestamp}.${ext}` and queries `getPublicUrl`.
+- **Bucket:** Public CDN bucket `profile-photos`.
 
----
-
-### `storageService.uploadDataUrl(dataUrl, userId, fileNamePrefix?)`
-- **Input:**
-  - `dataUrl: string` (Base64 data URL from webcam canvas).
-  - `userId: string`.
-  - `fileNamePrefix?: string` (Default: `'face_verification'`).
-- **Output:** `Promise<ServiceResult<{ publicUrl: string; path: string }>>`.
-- **Storage Interaction:** Converts dataUrl string to a binary Blob before dispatching to `uploadPhoto`.
+### `storageService.uploadFaceVerificationPhoto(fileOrBlob, userId)`
+- **Input:** `fileOrBlob: File | Blob`, `userId: string`.
+- **Output:** `Promise<ServiceResult<{ path: string }>>`.
+- **Bucket:** Strictly private bucket `verifications`.
 
 ---
 
@@ -143,30 +137,33 @@ export interface ServiceError {
 ### `eventService.getEvents()`
 - **Input:** None.
 - **Output:** `Promise<ServiceResult<EventDefinition[]>>`.
-- **Database Interaction:** Reads active events from `public.events` or returns static `STRINGX_EVENTS`.
+- **Behavior:** Returns active campus events.
 
----
-
-### `eventService.submitEventAnswers(eventId, userId, answers)`
-- **Input:**
-  - `eventId: string`
-  - `userId: string`
-  - `answers: Record<string, any>`
+### `eventService.submitEventAnswers(eventId, userId, profile)`
+- **Input:** `eventId: string`, `userId: string`, `profile: UserProfile`.
 - **Output:** `Promise<ServiceResult<UserEventRegistration>>`.
-- **Database Interaction:** Upserts into `public.event_participants`.
+- **Behavior:** Persists event registration in `public.event_registrations` and questionnaire telemetry in `public.event_preferences`.
+
+### `eventService.getEventRegistration(eventId, userId)`
+- **Input:** `eventId: string`, `userId: string`.
+- **Output:** `Promise<ServiceResult<UserEventRegistration | null>>`.
+- **Behavior:** Queries authoritative `public.event_registrations` and `public.event_preferences`.
 
 ---
 
 ## 6. `matchmakingService` (`src/services/matchmakingService.ts`)
 
+### `matchmakingService.checkActiveMatch(userId, eventId?)`
+- **Input:** `userId: string`, `eventId?: string`.
+- **Output:** `Promise<ServiceResult<ActiveMatchResult | null>>`.
+- **Behavior:** Queries `public.v_my_matches` and `public.matches` for an active pair.
+
+### `matchmakingService.subscribeToMatches(userId, onMatchUpdate)`
+- **Input:** `userId: string`, `onMatchUpdate: (match: any) => void`.
+- **Output:** `() => void` (Unsubscribe function).
+- **Behavior:** Subscribes to Supabase Realtime channel for match updates.
+
 ### `matchmakingService.getMatchesForEvent(eventId)`
 - **Input:** `eventId: string`.
 - **Output:** `Promise<ServiceResult<EventMatch[]>>`.
-- **Database Interaction:** Queries matches for the event or returns mock matches.
-
----
-
-### `matchmakingService.sendWave(matchId)`
-- **Input:** `matchId: string`.
-- **Output:** `Promise<ServiceResult<{ success: boolean; message: string }>>`.
-- **Database Interaction:** Dispatches a wave to partner record.
+- **Behavior:** Returns candidate matches with compatibility score and shared highlights.

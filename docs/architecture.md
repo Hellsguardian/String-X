@@ -1,5 +1,12 @@
 # STRING X — System Architecture
 
+> **Version:** 3.0.0  
+> **Status:** APPROVED ARCHITECTURAL SPECIFICATION (LAYER ISOLATION & GOOGLE OAUTH IDENTITY)  
+> **Target Framework:** React 19 + TypeScript + Vite 8  
+> **Backend Engine:** Supabase (Auth, PostgreSQL 15+, Storage, Realtime)  
+
+---
+
 ## 1. Architectural Philosophy
 
 STRING X is architected around **strict layer isolation**, **uni-directional data flow**, and **zero coupling between presentation and database operations**.
@@ -32,9 +39,9 @@ flowchart TD
 
     subgraph Infra_Layer ["4. Infrastructure & Data Layer"]
         SupaClient["Supabase Client Singleton (src/lib/supabase/client.ts)"]
-        SupaAuth["Supabase Auth (SMS OTP)"]
-        PostgreSQL["Supabase PostgreSQL (profiles, events, participants, matches)"]
-        SupaStorage["Supabase Storage (profile-photos bucket)"]
+        SupaAuth["Supabase Auth (Google OAuth & Parul University Allowlist)"]
+        PostgreSQL["Supabase PostgreSQL (profiles, verification, events, matches)"]
+        SupaStorage["Supabase Storage (profile-photos, verifications, event-assets)"]
         LocalFallback["Offline / Mock LocalStorage Fallback"]
     end
 
@@ -59,7 +66,7 @@ flowchart TD
 ### Layer 2: Domain Context & Hooks Layer (`src/features/`, `src/hooks/`)
 - **Role:** Coordinates client state across screens, manages active step progression, auto-advance timers, and centralizes authentication state listeners.
 - **Key Modules:**
-  - `AuthContext`: Tracks `user`, `session`, `profile`, `status` (`loading | authenticated | unauthenticated`), and completion booleans.
+  - `AuthContext`: Tracks `user`, `session`, `profile`, `status` (`loading | authenticated | unauthenticated`), and completion booleans. Handles deduplication and startup deadlock recovery.
   - `OnboardingContext`: Tracks `step` (`0..17`), triggers step validation, and cleans up timers.
   - `useAppNavigation`: Maps named routes (`AppRoute`) and the 24 screens in `DevScreenRail`.
 - **Why It Exists:** Avoids prop-drilling across deep component trees and guarantees a single source of truth for sessions and active profiles.
@@ -73,13 +80,13 @@ flowchart TD
   }
   ```
 - **Key Services:**
-  - `authService.ts`: Dispatches and verifies phone OTPs, retrieves active sessions, and signs out.
-  - `profileService.ts`: Fetches and updates profiles, converts DB schemas (`DatabaseProfile`) to UI entities (`UserProfile`), and computes completion status.
+  - `authService.ts`: Dispatches Google OAuth authentication, evaluates domain allowlists, handles account deletion RPC, and retrieves active sessions.
+  - `profileService.ts`: Fetches and updates profiles, converts DB schemas (`DatabaseProfile`) to UI entities (`UserProfile`), submits DP/Face verification attempts, and manages lookup caches.
   - `onboardingService.ts`: Validates steps and manages transient draft persistence.
-  - `storageService.ts`: Uploads media to Supabase Storage and handles base64 data URLs.
-  - `eventService.ts`: Queries active campus events and registers user questionnaire answers.
-  - `matchmakingService.ts`: Provides partner compatibility scores and wave dispatching.
-- **Why It Exists:** Decouples the application from Supabase. If the backend switches from Supabase to custom GraphQL or Firebase, only the service layer needs modification; the UI remains 100% untouched.
+  - `storageService.ts`: Uploads media to Supabase Storage (`profile-photos`, `verifications`) and handles base64 data URLs.
+  - `eventService.ts`: Queries active campus events, evaluates database registration truth, and persists questionnaire vibe answers.
+  - `matchmakingService.ts`: Queries active pairings (`v_my_matches`), subscribes to real-time match events, and provides partner compatibility insights.
+- **Why It Exists:** Decouples the application from Supabase. If the backend switches from Supabase to another persistence engine, only the service layer needs modification; the UI remains 100% untouched.
 
 ### Layer 4: Infrastructure & Client Layer (`src/lib/supabase/`)
 - **Role:** Instantiates the Supabase client singleton with session persistence and type safety.
@@ -127,11 +134,10 @@ sequenceDiagram
     Hook->>Context: Dispatches local state update
     Context->>Service: saveProfile(userId, updates)
     Service->>Service: mapProfileToDb(updates, userId)
-    Service->>Supabase: supabase.from('profiles').upsert(...)
-    Supabase->>DB: SQL UPSERT INTO profiles
+    Service->>Supabase: supabase.from('profiles').update(...)
+    Supabase->>DB: SQL UPDATE profiles SET ... WHERE id = userId
     DB-->>Supabase: Returns updated row
     Supabase-->>Service: { data, error }
-    Service->>Service: mapDbToProfile(data)
     Service-->>Context: ServiceResult<UserProfile>
     Context-->>Page: Re-renders with synchronized state
 ```
