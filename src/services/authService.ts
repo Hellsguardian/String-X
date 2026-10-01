@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 import { supabase } from '../lib/supabase/client';
 import { isSupabaseConfigured } from '../lib/supabase/env';
 import { ServiceResult, successResult, errorResult } from '../types/api';
@@ -17,16 +19,24 @@ export const authService = {
    */
   async signInWithGoogle(): Promise<ServiceResult<{ data: any }>> {
     try {
+      const isNative = Capacitor.isNativePlatform();
+      const redirectTo = isNative ? 'com.stringx.app://auth/callback' : window.location.origin;
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin,
+          redirectTo,
+          skipBrowserRedirect: isNative,
         },
       });
 
       if (error) {
         console.error('[authService] Google OAuth error:', error);
         return errorResult(error.message, error.name, error);
+      }
+
+      if (isNative && data?.url) {
+        await Browser.open({ url: data.url, windowName: '_self' });
       }
 
       return successResult({ data });

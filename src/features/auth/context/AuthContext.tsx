@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, Session } from '@supabase/supabase-js';
+import { Capacitor } from '@capacitor/core';
+import { App } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
+import { supabase } from '../../../lib/supabase/client';
 import { UserProfile } from '../../../types/user';
 import { authService } from '../../../services/authService';
 import { profileService } from '../../../services/profileService';
@@ -247,10 +251,83 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
+    let appUrlListener: { remove: () => void } | null = null;
+
+    if (Capacitor.isNativePlatform()) {
+      App.addListener('appUrlOpen', async (data) => {
+        const urlStr = data?.url;
+        console.log('[AuthContext] appUrlOpen received:', urlStr);
+        if (!urlStr || !urlStr.startsWith('com.stringx.app://auth/callback')) {
+          return;
+        }
+
+        try {
+          await Browser.close();
+        } catch {
+          // Ignore if browser was already closed
+        }
+
+        try {
+          const urlObj = new URL(urlStr.replace('com.stringx.app://', 'http://com.stringx.app/'));
+
+          // 1. Check for authorization code (PKCE flow)
+          const code = urlObj.searchParams.get('code');
+          if (code) {
+            console.log('[AuthContext] Exchanging PKCE code for session...');
+            const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+            if (exchangeError) {
+              console.error('[AuthContext] Error exchanging PKCE code for session:', exchangeError);
+              setAuthError({
+                title: 'Sign In Failed',
+                message: exchangeError.message || 'Could not complete Google sign-in. Please try again.',
+              });
+            } else if (exchangeData.session) {
+              console.log('[AuthContext] PKCE exchange successful for:', exchangeData.session.user.email);
+            }
+            return;
+          }
+
+          // 2. Fallback: check for access_token & refresh_token in hash or query params
+          const hash = urlObj.hash ? urlObj.hash.substring(1) : '';
+          const hashParams = new URLSearchParams(hash);
+          const accessToken = hashParams.get('access_token') || urlObj.searchParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token') || urlObj.searchParams.get('refresh_token');
+
+          if (accessToken && refreshToken) {
+            console.log('[AuthContext] Setting session from token params...');
+            const { error: setSessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (setSessionError) {
+              console.error('[AuthContext] Error setting session:', setSessionError);
+            }
+            return;
+          }
+
+          // 3. Check for error parameters in callback
+          const errorDesc = hashParams.get('error_description') || urlObj.searchParams.get('error_description') || hashParams.get('error') || urlObj.searchParams.get('error');
+          if (errorDesc) {
+            setAuthError({
+              title: 'Sign In Notice',
+              message: decodeURIComponent(errorDesc.replace(/\+/g, ' ')),
+            });
+          }
+        } catch (err: any) {
+          console.error('[AuthContext] Exception handling appUrlOpen:', err);
+        }
+      }).then((listener) => {
+        appUrlListener = listener;
+      });
+    }
+
     return () => {
       isMounted = false;
       clearTimeout(safetyTimeout);
       unsubscribe();
+      if (appUrlListener) {
+        appUrlListener.remove();
+      }
     };
   }, [loadUserProfile]);
 

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">String X</string>
+    <string name="title_activity_main">String X</string>
+    <string name="package_name">com.stringx.app</string>
+    <string name="custom_url_scheme">com.stringx.app</string>
+</resources>
