@@ -2,27 +2,31 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { motion } from 'motion/react';
 
 interface AgeSelectorProps {
-  value: number;
-  onChange: (age: number) => void;
+  value?: number; // Selected birth year (e.g. 2006)
+  onChange: (birthYear: number) => void;
   min?: number;
   max?: number;
 }
 
-const MIN_AGE = 15;
-const MAX_AGE = 28;
-const ITEM_HEIGHT = 54; // px per age row
+const MIN_YEAR = 1996;
+const MAX_YEAR = 2010;
+const DEFAULT_CENTER_YEAR = 2004;
+const ITEM_HEIGHT = 54; // px per year row
 const VISIBLE_ITEMS = 5; // 2 above, 1 selected, 2 below
 const CONTAINER_HEIGHT = ITEM_HEIGHT * VISIBLE_ITEMS; // 270px
 const PADDING_Y = (CONTAINER_HEIGHT - ITEM_HEIGHT) / 2; // 108px
+const QUICK_YEARS = [2003, 2004, 2005, 2006, 2007];
 
 export const AgeSelector: React.FC<AgeSelectorProps> = ({
   value,
   onChange,
-  min = MIN_AGE,
-  max = MAX_AGE,
+  min = MIN_YEAR,
+  max = MAX_YEAR,
 }) => {
-  // Clamp value within bounds
-  const currentAge = Math.min(Math.max(value || 18, min), max);
+  const currentYear = new Date().getFullYear();
+  const hasSelected = typeof value === 'number' && value >= min && value <= max;
+  const currentDisplayYear = hasSelected ? value : DEFAULT_CENTER_YEAR;
+  const calculatedAge = hasSelected ? currentYear - value : null;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const isProgrammaticScroll = useRef(false);
@@ -33,18 +37,18 @@ export const AgeSelector: React.FC<AgeSelectorProps> = ({
   const dragStartY = useRef(0);
   const dragStartScrollTop = useRef(0);
 
-  // Generate valid ages strictly from min to max (15..28)
-  const ages: number[] = [];
-  for (let i = min; i <= max; i++) {
-    ages.push(i);
+  // Generate birth years strictly from 1996 to 2010
+  const years: number[] = [];
+  for (let y = min; y <= max; y++) {
+    years.push(y);
   }
 
-  // Scroll to a specific age
-  const scrollToAge = useCallback((targetAge: number, smooth = true) => {
+  // Scroll to a specific birth year
+  const scrollToYear = useCallback((targetYear: number, smooth = true) => {
     if (!containerRef.current) return;
-    const targetIndex = targetAge - min;
+    const targetIndex = targetYear - min;
     const targetScrollTop = targetIndex * ITEM_HEIGHT;
-    
+
     isProgrammaticScroll.current = true;
     containerRef.current.scrollTo({
       top: targetScrollTop,
@@ -59,15 +63,20 @@ export const AgeSelector: React.FC<AgeSelectorProps> = ({
 
   // Sync scroll position when prop changes externally
   useEffect(() => {
-    if (!isDragging) {
-      scrollToAge(currentAge, true);
+    if (!isDragging && hasSelected) {
+      scrollToYear(value, true);
     }
-  }, [currentAge, scrollToAge, isDragging]);
+  }, [value, hasSelected, scrollToYear, isDragging]);
 
-  // Initial centering on mount
+  // Initial centering on mount (does not fire onChange so user must explicitly choose)
   useEffect(() => {
+    const targetYear = hasSelected ? value : DEFAULT_CENTER_YEAR;
+    isProgrammaticScroll.current = true;
     const timer = setTimeout(() => {
-      scrollToAge(currentAge, false);
+      scrollToYear(targetYear, false);
+      setTimeout(() => {
+        isProgrammaticScroll.current = false;
+      }, 100);
     }, 50);
     return () => clearTimeout(timer);
   }, []);
@@ -78,17 +87,17 @@ export const AgeSelector: React.FC<AgeSelectorProps> = ({
 
     const scrollTop = containerRef.current.scrollTop;
     const computedIndex = Math.round(scrollTop / ITEM_HEIGHT);
-    const computedAge = Math.min(Math.max(min + computedIndex, min), max);
+    const computedYear = Math.min(Math.max(min + computedIndex, min), max);
 
-    if (computedAge !== currentAge) {
-      onChange(computedAge);
+    if (computedYear !== value) {
+      onChange(computedYear);
     }
 
     // Debounced snap check to ensure clean center resting
     if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
     scrollTimeoutRef.current = setTimeout(() => {
       if (!isDragging && containerRef.current) {
-        const finalScroll = (computedAge - min) * ITEM_HEIGHT;
+        const finalScroll = (computedYear - min) * ITEM_HEIGHT;
         if (Math.abs(containerRef.current.scrollTop - finalScroll) > 2) {
           containerRef.current.scrollTo({
             top: finalScroll,
@@ -99,10 +108,10 @@ export const AgeSelector: React.FC<AgeSelectorProps> = ({
     }, 120);
   };
 
-  // Tap an age to center and select it
-  const handleSelectAge = (age: number) => {
-    onChange(age);
-    scrollToAge(age, true);
+  // Tap a year to center and select it
+  const handleSelectYear = (year: number) => {
+    onChange(year);
+    scrollToYear(year, true);
   };
 
   // Desktop mouse drag handlers
@@ -124,43 +133,45 @@ export const AgeSelector: React.FC<AgeSelectorProps> = ({
     setIsDragging(false);
     if (containerRef.current) {
       const computedIndex = Math.round(containerRef.current.scrollTop / ITEM_HEIGHT);
-      const computedAge = Math.min(Math.max(min + computedIndex, min), max);
-      onChange(computedAge);
-      scrollToAge(computedAge, true);
+      const computedYear = Math.min(Math.max(min + computedIndex, min), max);
+      onChange(computedYear);
+      scrollToYear(computedYear, true);
     }
   };
 
   return (
-    <div className="w-full flex flex-col items-center select-none pt-1">
-      {/* 1. Large Selected Age Display + Dynamic Badge */}
+    <div className="w-full flex flex-col items-center select-none pt-1 font-['Plus_Jakarta_Sans',sans-serif]">
+      {/* 1. Large Dynamic Age Display (Derived from selected Birth Year) + Badge */}
       <div className="flex flex-col items-center justify-center mb-3">
         <div className="flex items-baseline justify-center gap-2">
           <motion.span
-            key={currentAge}
+            key={calculatedAge !== null ? calculatedAge : 'unselected'}
             initial={{ scale: 0.88, y: -4, opacity: 0.8 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
-            transition={{ type: "spring", stiffness: 500, damping: 28 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 28 }}
             className="text-6xl font-black text-[#251436] tracking-tight"
           >
-            {currentAge}
+            {calculatedAge !== null ? calculatedAge : '—'}
           </motion.span>
           <span className="text-2xl font-black text-[#894EFF] tracking-tight">
             yrs
           </span>
         </div>
 
-        {/* Static Confirmation Badge */}
+        {/* LOCKED IN 🔒 Badge */}
         <div
           id="age-locked-in-tag"
-          className="mt-1.5 px-3.5 py-1 bg-[#D4CEEF] border-2 border-[#251436] rounded-full text-xs font-black text-[#251436] shadow-[2px_2px_0px_#251436] tracking-wide select-none"
+          className={`mt-1.5 px-3.5 py-1 bg-[#D4CEEF] border-2 border-[#251436] rounded-full text-xs font-black text-[#251436] shadow-[2px_2px_0px_#251436] tracking-wide select-none transition-opacity duration-150 ${
+            hasSelected ? 'opacity-100' : 'opacity-70'
+          }`}
         >
           LOCKED IN 🔒
         </div>
       </div>
 
-      {/* 2. Vertical Wheel / Roller Age Picker */}
+      {/* 2. Vertical Wheel / Roller Birth Year Picker (1996 → 2010) */}
       <div className="relative w-full max-w-[280px] flex items-center justify-center my-1">
-        {/* Background Highlight Capsule for Selected Age */}
+        {/* Background Highlight Capsule for Selected Birth Year */}
         <div
           style={{
             top: `${PADDING_Y}px`,
@@ -196,16 +207,18 @@ export const AgeSelector: React.FC<AgeSelectorProps> = ({
             isDragging ? 'cursor-grabbing' : ''
           }`}
         >
-          {ages.map((age) => {
-            const isSelected = age === currentAge;
-            const distance = Math.abs(age - currentAge);
+          {years.map((year) => {
+            const isSelected = hasSelected && year === value;
+            const distance = Math.abs(year - currentDisplayYear);
 
             // Compute depth effect styling based on distance from center
             let typographyClass = 'text-base font-semibold text-[#251436]/30';
             let scaleClass = 'scale-90';
 
             if (distance === 0) {
-              typographyClass = 'text-3xl font-black text-[#251436]';
+              typographyClass = isSelected || !hasSelected
+                ? 'text-3xl font-black text-[#251436]'
+                : 'text-2xl font-bold text-[#251436]';
               scaleClass = 'scale-110';
             } else if (distance === 1) {
               typographyClass = 'text-xl font-bold text-[#251436]/65';
@@ -217,16 +230,16 @@ export const AgeSelector: React.FC<AgeSelectorProps> = ({
 
             return (
               <div
-                key={age}
+                key={year}
                 style={{ height: `${ITEM_HEIGHT}px` }}
-                onClick={() => handleSelectAge(age)}
+                onClick={() => handleSelectYear(year)}
                 className="snap-center w-full flex items-center justify-center cursor-pointer transition-all duration-150"
               >
                 <div
                   className={`flex items-center justify-center transition-transform duration-150 ${scaleClass}`}
                 >
                   <span className={`tracking-tight select-none ${typographyClass}`}>
-                    {age}
+                    {year}
                   </span>
                 </div>
               </div>
@@ -235,26 +248,26 @@ export const AgeSelector: React.FC<AgeSelectorProps> = ({
         </div>
       </div>
 
-      {/* 3. Quick-Tap Common Range (17–23) for fast 1-tap mobile selection */}
-      <div className="w-full max-w-[310px] mt-2 flex flex-col items-center">
+      {/* 3. Quick-Tap Common Birth Years (2003 → 2007) */}
+      <div className="w-full max-w-[320px] mt-2 flex flex-col items-center">
         <div className="text-[10px] font-bold tracking-wider text-[#251436]/50 uppercase mb-1.5">
-          Quick Pick (College Range)
+          QUICK PICK
         </div>
         <div className="flex items-center justify-center gap-1.5 flex-wrap">
-          {[17, 18, 19, 20, 21, 22, 23].map((quickAge) => {
-            const isQuickSelected = quickAge === currentAge;
+          {QUICK_YEARS.map((quickYear) => {
+            const isQuickSelected = quickYear === value;
             return (
               <button
-                key={quickAge}
+                key={quickYear}
                 type="button"
-                onClick={() => handleSelectAge(quickAge)}
-                className={`w-8 h-8 rounded-xl font-extrabold text-xs transition-all duration-150 flex items-center justify-center cursor-pointer border ${
+                onClick={() => handleSelectYear(quickYear)}
+                className={`min-w-[48px] px-2.5 h-8 rounded-xl font-extrabold text-xs transition-all duration-150 flex items-center justify-center cursor-pointer border ${
                   isQuickSelected
                     ? 'bg-[#894EFF] text-white border-[#251436] shadow-[2px_2px_0px_#251436] -translate-y-0.5'
-                    : 'bg-white/80 text-[#251436]/75 border-[#251436]/30 hover:border-[#251436] hover:bg-white'
+                    : 'bg-white/80 text-[#251436]/75 border-[#251436]/30 hover:border-[#251436] hover:bg-white active:scale-95'
                 }`}
               >
-                {quickAge}
+                {quickYear}
               </button>
             );
           })}

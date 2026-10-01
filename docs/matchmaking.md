@@ -57,6 +57,18 @@ If an admin needs to alter a pairing (e.g. `SX001 <-> SX002` replaced by `SX001 
 2. New match record is inserted with status `'active'`.
 3. Historical data and audit trail are preserved without silent deletion.
 
+### 2.4 Verification-Based Matching Access Control
+String X enforces a strict separation between **General Application Access** and **Matchmaking Eligibility**:
+
+1. **General App Access:** Rejection of identity verification does NOT ban or terminate account access. Students retain access to general campus feeds, event schedules, profile settings, and account management.
+2. **Matching Gating Rule:**
+   - `verification_status = 'pending'`: Eligible for matchmaking (treated as approved during review).
+   - `verification_status = 'verified'`: Eligible for matchmaking.
+   - `verification_status = 'rejected'`: **Matchmaking locked.** The student cannot register for new event matching or enter active matching radar.
+3. **Correction & Re-Verification Flow:**
+   - When a user with `verification_status = 'rejected'` attempts to start or resume matchmaking ("Find My Match"), the frontend dynamically directs them to the photo/selfie re-submission flow.
+   - Submitting an updated profile photo via `submit_dp_verification(UUID)` or updated selfie via `submit_face_verification(...)` creates a fresh verification attempt, automatically resetting status to `'pending'` and immediately restoring matching eligibility.
+
 ---
 
 ## 3. Synchronized Pair-Level Reveal Model
@@ -81,8 +93,15 @@ Administrators can activate `admin_reveal = true` on any match via the `admin_se
 Admins inspect the student directory presenting:
 `User Code (SX001) | Full Name | Phone | Weight | Verification | Premium | Assigned Match | Reveal Status`
 
-### 4.2 Assignment RPC (`admin_assign_match`)
-Admins assign pairings directly using human-readable user codes:
+### 4.2 Automated Single-Value Match Assignment (Primary Phase 1 Workflow)
+The primary operational workflow for administrators is setting `matched_with` on `public.event_registrations`:
+- Setting `SX001.matched_with = 'SX005'` triggers `trg_sync_event_registration_match`.
+- Automatically synchronizes reciprocal registration `SX005.matched_with = 'SX001'`.
+- Automatically creates or updates canonical pair in `public.matches` (`user_a_id < user_b_id`, `status = 'active'`) and `public.connections`.
+- Setting `matched_with = NULL` resets partner and marks match `'cancelled'`.
+
+### 4.3 Assignment RPC (`admin_assign_match`)
+Admins can also assign pairings directly via RPC:
 ```sql
 SELECT public.admin_assign_match(
     p_event_id := 'c4e3b1a0-1234-5678-9abc-def012345678',
@@ -93,7 +112,7 @@ SELECT public.admin_assign_match(
 );
 ```
 
-### 4.3 Reassignment RPC (`admin_reassign_match`)
+### 4.4 Reassignment RPC (`admin_reassign_match`)
 ```sql
 SELECT public.admin_reassign_match(
     p_event_id := 'c4e3b1a0-1234-5678-9abc-def012345678',

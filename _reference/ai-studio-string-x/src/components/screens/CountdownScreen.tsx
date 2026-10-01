@@ -10,11 +10,13 @@ interface CountdownScreenProps {
   onBack?: () => void;
   onViewProfile?: () => void;
   onEnterEventDiscovery?: () => void;
+  onRevealMatch?: () => void;
 }
 
 export const CountdownScreen: React.FC<CountdownScreenProps> = ({
   profile,
   onBack,
+  onRevealMatch,
 }) => {
   const [showRevealModal, setShowRevealModal] = useState(false);
 
@@ -40,7 +42,11 @@ export const CountdownScreen: React.FC<CountdownScreenProps> = ({
           return { ...prev, days: prev.days - 1, hours: 23, minutes: 59, seconds: 59 };
         } else {
           // When countdown reaches zero, trigger the Match Reveal experience
-          setShowRevealModal(true);
+          if (onRevealMatch) {
+            onRevealMatch();
+          } else {
+            setShowRevealModal(true);
+          }
           return prev;
         }
       });
@@ -184,7 +190,11 @@ export const CountdownScreen: React.FC<CountdownScreenProps> = ({
           </div>
 
           {/* 5. MATCH STATUS MESSAGE (Under the Timer) */}
-          <div className="w-full mt-4 p-3 rounded-2xl bg-[#1B0B2A]/70 border border-[#894EFF]/30 text-center backdrop-blur-xs">
+          <button
+            type="button"
+            onClick={onRevealMatch || (() => setShowRevealModal(true))}
+            className="w-full mt-4 p-3 rounded-2xl bg-[#1B0B2A]/70 hover:bg-[#1B0B2A]/90 active:scale-[0.98] border border-[#894EFF]/30 hover:border-[#894EFF]/60 text-center backdrop-blur-xs transition-all cursor-pointer group"
+          >
             <div className="inline-flex items-center gap-1.5 text-xs font-black text-[#FFC928] mb-1">
               <Lock size={12} className="text-[#FFC928]" />
               <span>Identity Locked</span>
@@ -192,10 +202,11 @@ export const CountdownScreen: React.FC<CountdownScreenProps> = ({
             <p className="text-xs font-semibold text-white leading-relaxed">
               Your STRING X match is safely hidden until Navratri.
             </p>
-            <p className="text-[11px] font-medium text-[#E3E0F5]/80 mt-1">
-              We'll reveal your match when Navratri begins. ✨
+            <p className="text-[11px] font-medium text-[#E3E0F5]/80 mt-1 flex items-center justify-center gap-1 group-hover:text-[#FFC928] transition-colors">
+              <span>Tap to preview Match Reveal</span>
+              <span>→</span>
             </p>
-          </div>
+          </button>
         </div>
       </div>
 

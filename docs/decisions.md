@@ -14,7 +14,7 @@ This document records the foundational architectural decisions made for the STRI
 ---
 
 ## ADR 02: Supabase as Unified Backend
-- **Context:** STRING X needs user authentication (SMS OTP), relational data (profiles, events, questionnaires), and binary media storage (profile photos).
+- **Context:** STRING X needs user authentication (initially prototyped with SMS OTP, later evolved to Google OAuth in ADR 17), relational data (profiles, events, questionnaires), and binary media storage (profile photos).
 - **Decision:** Adopt Supabase as the unified backend (Supabase Auth, PostgreSQL, and Storage).
 - **Reason:** Consolidates auth, relational schema, and S3-compatible storage under a single client SDK with native Row Level Security (RLS).
 - **Alternatives Considered:** Firebase (poor relational query support for complex matchmaking), custom Express/Node API (higher maintenance overhead).
@@ -179,5 +179,66 @@ This document records the foundational architectural decisions made for the STRI
   10. Implement intelligent "Find My Match" routing in the frontend: checks questionnaire completion first (routes to Step 9 if incomplete), then verifies canonical active match in the database (routes to Page 23 Countdown if active, or Page 22 Waiting Radar if searching).
 - **Reason:** Provides atomic, administrative simplicity with zero race conditions, guarantees canonical relational integrity, and keeps client security strictly contained.
 - **Consequences:** Administrators can execute match assignments via single-field edits; frontend waiting radar and countdown pages synchronize automatically.
+
+---
+
+## ADR 17: Google OAuth as Primary Authentication & Parul University Email Allowlisting
+- **Context:** SMS OTP authentication incurred high operational latency, SMS gateway costs, and lacked institutional verification. String X requires guaranteed student identity authentication limited to the Parul University campus ecosystem, while allowing designated test/developer accounts for platform engineering and App Store / Google Play reviews.
+- **Decision:**
+  1. Adopt Supabase Google OAuth as the primary authentication flow across the application.
+  2. Implement `public.allowed_auth_emails` allowlist table with RLS permitting administrators to maintain developer and tester access.
+  3. Implement `public.is_email_allowed(p_email TEXT)` validator checking for official Parul University student pattern (`^[0-9]+@paruluniversity\.ac\.in$`) or active entry in `allowed_auth_emails`.
+  4. Implement `public.extract_enrollment_no(p_email TEXT)` extracting the numeric student enrollment prefix.
+  5. Add `email TEXT NOT NULL UNIQUE` and `enrollment_no TEXT UNIQUE NULL` to `public.profiles`.
+  6. Enforce immutable profile email synchronization via `trg_enforce_profile_email_identity` (BEFORE trigger on `public.profiles`) and `on_auth_user_email_updated` (AFTER trigger on `auth.users`), while allowing unhindered service_role and admin maintenance.
+  7. Update `handle_new_user()` trigger to validate allowed email before initializing the initial profile stub on `auth.users` insert.
+- **Reason:** Guarantees campus-exclusive student participation, prevents client-side identity spoofing, automates enrollment number extraction, and provides zero-cost authenticated OAuth sessions.
+- **Consequences:** Students must sign in using their official university Google account; external non-allowlisted emails are rejected with descriptive authorization notices.
+
+---
+
+## ADR 18: Real-Time Aggregate Platform Statistics
+- **Context:** The String X landing screen and marketing displays require live social-proof metrics (e.g. total registered profiles count) without performing expensive `COUNT(*)` queries on `public.profiles` or exposing sensitive student profile rows to anonymous/unauthenticated visitors.
+- **Decision:**
+  1. Create `public.platform_statistics` table with a singleton row (`id = 'global'`, `total_profiles INTEGER`, `updated_at TIMESTAMPTZ`).
+  2. Implement `public.sync_platform_profile_count()` trigger function (`SECURITY DEFINER`) attached to `public.profiles` on `AFTER INSERT OR DELETE` to atomically increment and decrement `total_profiles`.
+  3. Grant public read-only access (`FOR SELECT TO anon, authenticated USING (true)`) while revoking all mutation capabilities from client roles.
+  4. Register `public.platform_statistics` in the `supabase_realtime` publication for instant reactive client subscriptions.
+- **Reason:** O(1) instantaneous counter reads, zero privacy/PII leaks to unauthenticated clients, and zero query overhead during high-traffic campus launch spikes.
+- **Consequences:** Total profile counters update in real time across all connected clients with minimal database resource consumption.
+
+---
+
+## ADR 19: Unified Verification Subsystem & PostgreSQL Verification State ENUM
+- **Context:** The original prototype stored flat verification fields directly on `public.profiles` (`verification_status`, `face_verification_path`, `face_verified_at`, `verification_rejection_reason`). This architecture suffered from key limitations: (1) no multi-attempt historical audit trail when students re-submitted rejected photos, (2) conflation of public profile photo (DP) moderation with private live webcam facial selfie verification, (3) lack of geolocation telemetry capture to detect proxy submissions, and (4) inconsistent status strings across services.
+- **Decision:**
+  1. Create dedicated `public.verification` table storing complete verification attempt history with foreign keys to `auth.users` and `public.profile_photos`.
+  2. Create PostgreSQL ENUM `public.verification_state` with explicit values: `'pending'`, `'verified'`, `'rejected'`.
+  3. Allow multiple attempt rows per student (NO unique constraint on `user_id`), indexed deterministically by `(user_id, created_at DESC, id DESC)`.
+  4. Drop `face_verified_at` and `verification_rejection_reason` from `public.profiles`; retain `profiles.verification_status` as a profile-level summary field and `face_verification_path` strictly as transitional compatibility state.
+  5. Require non-null geolocation telemetry (`latitude`, `longitude`, `accuracy_m`) in `submit_face_verification` RPC as a secondary fraud signal (not identity proof).
+  6. Add `submit_dp_verification(p_profile_photo_id UUID)` RPC for independent profile photo moderation.
+  7. Redefine `admin_verify_user(p_user_code_or_id, p_approved, p_reject_dp, p_reject_face, p_rejection_reason)` allowing granular moderation of DP, Face, or both with structured rejection reasons.
+- **Reason:** Establishes a complete moderation audit trail, separates public avatar review from biometric identity verification, and enforces strict type safety via database enums.
+- **Consequences:** Verification history is preserved immutably across re-attempts; the latest attempt deterministically controls active user standing.
+
+---
+
+## ADR 20: Bidirectional Verification State Synchronization & Profile Propagation
+- **Context:** Following the initial unified verification rollout, administrators moderating users directly in Supabase Table Editor encountered restrictive CHECK constraint exceptions (`chk_verification_status_invariants`) when updating parent and child status fields independently. Furthermore, manual edits in `public.verification` did not automatically propagate to `public.profiles.verification_status`, requiring double updates.
+- **Decision:**
+  1. Drop the restrictive `chk_verification_status_invariants` CHECK constraint; rely on `public.verification_state` ENUM for value integrity.
+  2. Implement `public.sync_verification_states()` BEFORE trigger function on `public.verification`:
+     - **INSERT:** Deterministically forces all new verification attempts to `pending / pending / pending`.
+     - **UPDATE (Parent edit):** `pending` $\to$ `dp: pending, face: pending`; `verified` $\to$ `dp: verified, face: verified`; `rejected` $\to$ defaults to `dp: verified, face: rejected` (if neither child is rejected).
+     - **UPDATE (Child edit):** Any child `rejected` $\to$ parent `rejected`; both children `verified` $\to$ parent `verified`; otherwise parent `pending`.
+  3. Implement `public.sync_verification_to_profiles()` AFTER trigger function on `public.verification`:
+     - Automatically updates `public.profiles.verification_status` whenever a verification row is inserted or updated.
+     - Resolves the authoritative latest attempt using deterministic ordering: `ORDER BY created_at DESC, id DESC LIMIT 1`.
+     - Operates after the row operation, before transaction commit, preventing stale profile status when older historical rows are edited.
+  4. Perform one-time migration reconciliation in `20261005000002` aligning all profiles with their latest verification attempt.
+- **Reason:** Eliminates administrator workflow errors during manual moderation, guarantees deterministic state derivation, and ensures `public.profiles` always mirrors the latest verification attempt.
+- **Consequences:** Admins can edit parent or child fields freely in Table Editor; profile summary status updates automatically with zero desynchronization.
+
 
 

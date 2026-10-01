@@ -331,6 +331,7 @@ export const INITIAL_USER_PROFILE: UserProfile = {
   fullName: '',
   nickname: '',
   pronouns: '',
+  birthYear: undefined,
   age: 0,
   photoUrl: '',
   additionalPhotos: [],

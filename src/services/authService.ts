@@ -37,6 +37,38 @@ export const authService = {
   },
 
   /**
+   * Reusable helper to determine whether an email is permitted to authenticate in StringX.
+   * 1. Parul University student pattern (@paruluniversity.ac.in with numeric enrollment ID prefix)
+   * 2. Developer/test accounts checked securely via Supabase RPC public.is_email_allowed()
+   * (Frontend validation is for UX only; backend database trigger remains the authoritative gate).
+   */
+  async isEmailPermitted(email: string | null | undefined): Promise<boolean> {
+    if (!email || !email.trim()) return false;
+    const clean = email.toLowerCase().trim();
+
+    // 1. Fast client-side check for official Parul University student format
+    if (/^[0-9]+@paruluniversity\.ac\.in$/i.test(clean)) {
+      return true;
+    }
+
+    // 2. Authoritative check for developer/tester allowlist via secure RPC
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await (supabase.rpc as any)('is_email_allowed', {
+          p_email: clean,
+        });
+        if (!error && typeof data === 'boolean') {
+          return data;
+        }
+      } catch (err) {
+        console.warn('[authService] is_email_allowed RPC check notice:', err);
+      }
+    }
+
+    return false;
+  },
+
+  /**
    * Send a 6-digit OTP code to the provided phone number via Supabase Auth
    */
   async sendPhoneOtp(phone: string): Promise<ServiceResult<{ message: string }>> {

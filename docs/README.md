@@ -2,7 +2,7 @@
 
 Welcome to the comprehensive developer documentation for **STRING X**.
 
-STRING X is a high-energy, campus-focused social matchmaking application designed for university festivals and cultural connections (featuring the Navratri 2026 experience, live face verification, campus vibe matching, and partner countdown reveal).
+STRING X is a high-energy, campus-focused social matchmaking application designed for university festivals and cultural connections (featuring Google OAuth campus authentication, live face verification, campus vibe matching, and partner countdown reveal).
 
 ---
 
@@ -17,9 +17,10 @@ STRING X is a high-energy, campus-focused social matchmaking application designe
 - **Effects:** Canvas Confetti (`canvas-confetti`)
 - **Icons:** Lucide React (`lucide-react`)
 - **Backend & Database:** Supabase (`@supabase/supabase-js`)
-  - **Auth:** Supabase Phone OTP Authentication
-  - **Database:** Supabase PostgreSQL with Row Level Security (RLS)
+  - **Auth:** Google OAuth with `@paruluniversity.ac.in` domain restriction & `allowed_auth_emails` allowlist bypass
+  - **Database:** Supabase PostgreSQL with Row Level Security (RLS) & unified verification state engine
   - **Storage:** Supabase Storage (`profile-photos` bucket)
+  - **Realtime:** Realtime platform statistics publication (`platform_statistics`)
 
 ---
 
@@ -27,7 +28,7 @@ STRING X is a high-energy, campus-focused social matchmaking application designe
 
 ```mermaid
 flowchart LR
-    A[Screen 01: Landing] --> B[Screen 02: Phone Sign-Up & OTP]
+    A[Screen 01: Landing] --> B[Screen 02: Google OAuth Sign-In]
     B --> C[Screens 03–11: Core Onboarding]
     C --> D[Face Verified Transition]
     D --> E[Screen 12: STRING X Home]
@@ -37,8 +38,8 @@ flowchart LR
     E -.-> I[Screen 24: Profile & Settings]
 ```
 
-1. **Landing (`/`):** Full-bleed festival illustration, core branding, entry CTA.
-2. **Phone Sign-Up (`/auth/phone`):** 10-digit phone entry, Supabase 6-digit OTP verification modal.
+1. **Landing (`/`):** Full-bleed festival illustration, core branding, Google OAuth entry CTA.
+2. **Google Sign-In (`/auth`):** Supabase Google OAuth authenticating against university domain (`@paruluniversity.ac.in`) with enrollment number extraction or developer allowlist bypass (`allowed_auth_emails`). *(Historical note: Prototype used Phone OTP before Google OAuth was established).*
 3. **Core Profile Onboarding (`/onboarding` Steps 0–8):**
    - Step 01: Name & Gender
    - Step 02: Campus & Hostel Selection
@@ -48,9 +49,9 @@ flowchart LR
    - Step 06: Home State Selector
    - Step 07: College Year Cards
    - Step 08: Department & Course Selection
-   - Step 09: Live Webcam Face Verification (Pico ML cascade model)
+   - Step 09: Live Webcam Face Verification (Pico ML cascade model with geolocation capture)
 4. **Verification Celebration (`/onboarding/verified`):** 1.5s celebratory animation transition.
-5. **STRING X Home (`/home`):** Campus events feed, live Navratri 2026 banner, profile link.
+5. **STRING X Home (`/home`):** Campus events feed, live Navratri 2026 banner, dynamic verification status banner, and profile link.
 6. **Navratri Vibe Registration (`/events/navratri` Steps 9–17):**
    - Step 01: Partner Gender Preference
    - Step 02: Campus Interests
@@ -63,7 +64,7 @@ flowchart LR
    - Step 09: Instagram Handle Input
 7. **Radar Scanner (`/match/scanning`):** Procedural candidate signal generator and campus search radar.
 8. **Countdown & Sneak Peek Reveal (`/match/countdown`):** Live days/hours/minutes countdown to partner reveal with sneak peek partner modal.
-9. **Profile & Settings (`/profile`):** Campus status, profile card, notifications, privacy, and sign-out modal.
+9. **Profile & Settings (`/profile`):** Campus status, profile card, notifications, privacy, account deletion, and sign-out modal.
 
 ---
 
@@ -71,7 +72,7 @@ flowchart LR
 
 ```
 string-x/
-├── docs/                        # Complete technical documentation
+├── docs/                        # Complete technical documentation (10 synchronized docs)
 ├── public/                      # Static assets & Pico ML models (/models/facefinder)
 ├── src/
 │   ├── app/                     # Application shell, router, and composite providers
@@ -91,6 +92,8 @@ string-x/
 │   ├── services/                # Business logic & Supabase data access layer
 │   ├── types/                   # Centralized domain and API type definitions
 │   └── utils/                   # Pico face detector and geometry validation
+├── supabase/
+│   └── migrations/              # 16-migration sequential PostgreSQL database schema
 ├── ARCHITECTURE_REFACTOR_PLAN.md   # Initial refactor plan
 ├── ARCHITECTURE_REFACTOR_REPORT.md # Refactor migration report
 ├── CONTRIBUTING.md              # Engineering guidelines and pull request standards
@@ -125,12 +128,15 @@ npm run build
 | Topic | Document | Description |
 |---|---|---|
 | **Architecture** | [architecture.md](architecture.md) | System design, uni-directional data flow, and layers |
-| **Database** | [database.md](database.md) | PostgreSQL schema, tables, types, and RLS policies |
-| **Authentication** | [authentication.md](authentication.md) | Supabase Auth, phone OTP flow, and session management |
+| **Database Specification** | [database.md](database.md) | PostgreSQL schema, tables, types, RPCs, and trigger sync |
+| **Database ERD** | [database-erd.md](database-erd.md) | Entity relationship diagrams and physical table schemas |
+| **Database Security** | [database-security.md](database-security.md) | Row Level Security (RLS) policies and column-level security |
+| **Migrations Manifest** | [migrations.md](migrations.md) | 16-migration sequence, rollback guidance, and execution order |
+| **Authentication** | [authentication.md](authentication.md) | Google OAuth, Parul University allowlist, and session management |
 | **Routing** | [routing.md](routing.md) | Route map, DevScreenRail indexing, and navigation logic |
 | **Onboarding** | [onboarding.md](onboarding.md) | Detailed specs for Screens 03–11 and 13–21 |
-| **Matchmaking** | [matchmaking.md](matchmaking.md) | Vibe scoring, partner preferences, and countdown reveal |
-| **Design System** | [design.md](design.md) | Color palette, typography, shadows, animations, and spacing |
+| **Matchmaking** | [matchmaking.md](matchmaking.md) | Vibe scoring, verification gate, partner preferences, and reveal |
+| **Design System** | [design.md](design.md) | Neo-brutalist festive aesthetics, colors, typography, and badges |
 | **Components** | [components.md](components.md) | Catalogue of UI primitives and custom inputs |
 | **Services** | [services.md](services.md) | Service layer API specifications and error handling |
 | **State Management**| [state-management.md](state-management.md) | AuthContext, OnboardingContext, and local UI state |
@@ -142,6 +148,6 @@ npm run build
 | **Testing** | [testing.md](testing.md) | Quality assurance, browser testing, and checklists |
 | **Troubleshooting** | [troubleshooting.md](troubleshooting.md) | Common errors, root causes, and resolutions |
 | **Internal API** | [api.md](api.md) | Service layer function signatures and payloads |
-| **Decisions (ADRs)**| [decisions.md](decisions.md) | Architecture Decision Records for key choices |
-| **Changelog** | [changelog.md](changelog.md) | History of major architectural milestones |
+| **Decisions (ADRs)**| [decisions.md](decisions.md) | Architecture Decision Records (ADR 01 through ADR 20) |
+| **Changelog** | [changelog.md](changelog.md) | History of releases through v2.11.0 |
 | **Audit** | [documentation-audit.md](documentation-audit.md) | Coverage, verified paths, and known technical debt |

@@ -1,428 +1,413 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { StringXLogo } from '../illustrations/GarbaIllustrations';
 import { UserProfile } from '../../types';
+import {
+  AssignedMatch,
+  getAssignedMatch,
+  subscribeToMatch,
+  pollForMatch,
+} from '../../services/matchmakingService';
 
 interface SubmissionSuccessScreenProps {
   profile?: UserProfile;
   collegeName?: string;
   onBack?: () => void;
-  onContinueToCountdown: () => void;
+  onContinueToCountdown: (match?: AssignedMatch) => void;
   onEnterMainApp?: () => void;
 }
 
-interface CandidateSignal {
+interface CandidatePoint {
   id: string;
-  x: number; // percentage 0-100
-  y: number; // percentage 0-100
-  size: number; // px
+  x: number;
+  y: number;
   color: string;
-  glow: string;
-  opacity: number;
-  pulseDelay: number;
-  pulseDuration: number;
+  delay: number;
 }
 
-const ACCENT_COLORS = [
-  { color: '#FFC928', glow: 'rgba(255, 201, 40, 0.75)' },
-  { color: '#F02A8A', glow: 'rgba(240, 42, 138, 0.75)' },
-  { color: '#894EFF', glow: 'rgba(137, 78, 255, 0.75)' },
-  { color: '#08A98D', glow: 'rgba(8, 169, 141, 0.75)' },
+const CANDIDATE_POINTS: CandidatePoint[] = [
+  { id: 'c1', x: 57, y: 22, color: '#08A98D', delay: 0.2 },
+  { id: 'c2', x: 62, y: 55, color: '#08A98D', delay: 0.5 },
+  { id: 'c3', x: 63, y: 76, color: '#08A98D', delay: 0.8 },
+  { id: 'c4', x: 28, y: 64, color: '#08A98D', delay: 1.1 },
+  { id: 'c5', x: 38, y: 62, color: '#894EFF', delay: 1.4 },
+  { id: 'c6', x: 34, y: 62, color: '#F02A8A', delay: 1.7 },
+  { id: 'c7', x: 44, y: 68, color: '#08A98D', delay: 2.0 },
 ];
 
-/**
- * Procedurally generates 1 to 5 candidate signals at completely randomized polar positions.
- * Ensures dots stay within radar bounds and avoid overlapping the central user marker.
- */
-function generateRandomSignals(cycle: number): CandidateSignal[] {
-  const count = Math.floor(Math.random() * 5) + 1; // Strictly 1 to 5 signals
-  const signals: CandidateSignal[] = [];
-
-  for (let i = 0; i < count; i++) {
-    let attempts = 0;
-    let x = 50;
-    let y = 50;
-    let tooClose = true;
-
-    while (attempts < 20 && tooClose) {
-      // Distance from center: between 19% and 42% (center is 50%, outer ring boundary is 50%)
-      const minR = 19;
-      const maxR = 42;
-      const r = minR + Math.random() * (maxR - minR);
-      const angle = Math.random() * 2 * Math.PI;
-
-      x = Math.round((50 + r * Math.cos(angle)) * 10) / 10;
-      y = Math.round((50 + r * Math.sin(angle)) * 10) / 10;
-
-      // Prevent dots from awkwardly clumping on top of each other (min 11% distance)
-      tooClose = signals.some(s => {
-        const dx = s.x - x;
-        const dy = s.y - y;
-        return Math.sqrt(dx * dx + dy * dy) < 11;
-      });
-      attempts++;
-    }
-
-    const col = ACCENT_COLORS[Math.floor(Math.random() * ACCENT_COLORS.length)];
-    signals.push({
-      id: `sig-${cycle}-${i}-${x}-${y}`,
-      x,
-      y,
-      size: 6 + Math.floor(Math.random() * 4), // 6 to 9px - small, subtle, premium
-      color: col.color,
-      glow: col.glow,
-      opacity: 0.65 + Math.random() * 0.35,
-      pulseDelay: Math.random() * 1.2,
-      pulseDuration: 1.8 + Math.random() * 0.8,
-    });
-  }
-
-  return signals;
-}
-
-// Live Search Status (Above Radar)
-const SEARCH_STATUS_MESSAGES = [
-  'Scanning nearby strings…',
-  'Checking Garba vibes…',
-  'Matching shared interests…',
-  'Comparing campus preferences…',
-  'Finding compatible energy…',
-  'Searching again…'
-];
-
-// Human, social bottom status messages
-const BOTTOM_ACTIVITY_MESSAGES = [
-  'Scanning campus strings…',
-  'Finding your kind of people…',
-  'Looking for your rhythm…',
-  'Still searching…',
-  'Your string is out there…'
+const WAITING_STATUS_MESSAGES = [
+  'Evaluating candidate compatibility...',
+  'Scanning campus for compatible energy...',
+  'Checking shared interests...',
+  'Finding your Garba vibe...',
+  'Looking for your string...',
+  'Still searching...',
 ];
 
 export const SubmissionSuccessScreen: React.FC<SubmissionSuccessScreenProps> = ({
-  profile,
   onBack,
   onContinueToCountdown,
 }) => {
-  const [scanCycle, setScanCycle] = useState(0);
-  const [signals, setSignals] = useState<CandidateSignal[]>(() => generateRandomSignals(0));
-  const [searchStatusIndex, setSearchStatusIndex] = useState(0);
-  const [bottomStatusIndex, setBottomStatusIndex] = useState(0);
-  const [progress, setProgress] = useState(34);
+  // Visual progress bar (starts at 0, ramps up to 84% while waiting, hits 100% ONLY on match)
+  const [progress, setProgress] = useState(0);
+
+  // Match state
+  const [assignedMatch, setAssignedMatch] = useState<AssignedMatch | null>(null);
   const [isMatchFound, setIsMatchFound] = useState(false);
+
+  // Status message index cycling while waiting
+  const [statusIndex, setStatusIndex] = useState(0);
+
+  // Navigation guard to prevent duplicate calls
   const hasNavigatedRef = useRef(false);
 
-  // Every complete radar rotation (~3.0s), regenerate a new batch of 1 to 5 signals
+  // 1. Initial Ramp-Up Progress to 84% (represents ongoing search, NOT a completed match)
   useEffect(() => {
-    if (isMatchFound) return;
-
-    const cycleInterval = setInterval(() => {
-      setScanCycle(prev => {
-        const next = prev + 1;
-        setSignals(generateRandomSignals(next));
-        return next;
-      });
-    }, 3000);
-
-    return () => clearInterval(cycleInterval);
-  }, [isMatchFound]);
-
-  // Smoothly cycle search status above radar
-  useEffect(() => {
-    if (isMatchFound) return;
-
-    const statusTimer = setInterval(() => {
-      setSearchStatusIndex(prev => (prev + 1) % SEARCH_STATUS_MESSAGES.length);
-    }, 2500);
-
-    return () => clearInterval(statusTimer);
-  }, [isMatchFound]);
-
-  // Smoothly cycle bottom human activity status
-  useEffect(() => {
-    if (isMatchFound) return;
-
-    const bottomTimer = setInterval(() => {
-      setBottomStatusIndex(prev => (prev + 1) % BOTTOM_ACTIVITY_MESSAGES.length);
-    }, 2800);
-
-    return () => clearInterval(bottomTimer);
-  }, [isMatchFound]);
-
-  // Natural fluctuating AI matchmaking curve
-  useEffect(() => {
-    const curve = [34, 43, 52, 48, 61, 72, 68, 79, 88, 94, 100];
+    const rampSteps = [0, 14, 27, 41, 58, 71, 84];
     let step = 0;
 
-    const progressTimer = setInterval(() => {
-      step++;
-      if (step < curve.length) {
-        setProgress(curve[step]);
-        if (curve[step] === 100) {
-          triggerMatchFound();
-          clearInterval(progressTimer);
-        }
+    const timer = setInterval(() => {
+      if (step < rampSteps.length) {
+        setProgress(rampSteps[step]);
+        step++;
       } else {
-        triggerMatchFound();
-        clearInterval(progressTimer);
+        clearInterval(timer);
       }
-    }, 550);
+    }, 450);
 
-    return () => clearInterval(progressTimer);
+    return () => clearInterval(timer);
   }, []);
 
-  // Match found moment: brief focused celebration then automatic transition
-  const triggerMatchFound = () => {
+  // 2. Continuous Status Cycling while waiting (purely visual, does NOT trigger navigation)
+  useEffect(() => {
+    if (isMatchFound) return;
+
+    const cycleTimer = setInterval(() => {
+      setStatusIndex((prev) => (prev + 1) % WAITING_STATUS_MESSAGES.length);
+    }, 3200);
+
+    return () => clearInterval(cycleTimer);
+  }, [isMatchFound]);
+
+  // 3. Match Detection Handler (Realtime or Poll)
+  const handleMatchConfirmed = (match: AssignedMatch, isImmediate = false) => {
     if (hasNavigatedRef.current) return;
+
+    setAssignedMatch(match);
     setIsMatchFound(true);
     setProgress(100);
 
-    // Auto-navigate to next page after short match-detected animation (750ms)
+    // If match already existed on load, transition quickly
+    const delay = isImmediate ? 450 : 750;
+
     setTimeout(() => {
       if (!hasNavigatedRef.current) {
         hasNavigatedRef.current = true;
-        onContinueToCountdown();
+        onContinueToCountdown(match);
       }
-    }, 750);
+    }, delay);
+  };
+
+  // 4. Check for Existing Match & Setup Realtime / Polling Listeners
+  useEffect(() => {
+    // Check if match already exists in backend/storage
+    const existing = getAssignedMatch();
+    if (existing) {
+      handleMatchConfirmed(existing, true);
+      return;
+    }
+
+    // Subscribe to Realtime events (storage, CustomEvents, BroadcastChannel)
+    const unsubscribeRealtime = subscribeToMatch((match) => {
+      if (match) {
+        handleMatchConfirmed(match, false);
+      }
+    });
+
+    // Fallback polling every 2.5s in case realtime isn't caught
+    const stopPolling = pollForMatch((match) => {
+      if (match) {
+        handleMatchConfirmed(match, false);
+      }
+    }, 2500);
+
+    return () => {
+      unsubscribeRealtime();
+      stopPolling();
+    };
+  }, []);
+
+  // Dynamic status text for the compatibility pill
+  const getPillText = () => {
+    if (isMatchFound) {
+      return 'String found ✨';
+    }
+    return WAITING_STATUS_MESSAGES[statusIndex];
+  };
+
+  // Dynamic progress subtext below the progress bar
+  const getSubtext = () => {
+    if (isMatchFound) {
+      return 'Your string has been found ✨';
+    }
+    return WAITING_STATUS_MESSAGES[statusIndex];
   };
 
   return (
-    <div
-      onClick={() => {
-        // Quick tap accelerator for developers or impatient users
-        if (!isMatchFound) {
-          triggerMatchFound();
-        }
-      }}
-      className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-between p-5 sm:p-6 pt-[max(16px,env(safe-area-inset-top,0px))] pb-[max(16px,env(safe-area-inset-bottom,0px))] bg-[#251436] text-white select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]"
-    >
-      {/* 8. SUBTLE AMBIENT LIFE: Soft background atmospheric glow & floating micro-particles */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {/* Soft radial background glow centered on radar */}
+    <div className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-between p-4 sm:p-5 pt-[max(14px,env(safe-area-inset-top,0px))] pb-[max(16px,env(safe-area-inset-bottom,0px))] bg-[#251436] text-white select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          1. BACKGROUND: Deep Plum #251436 + Precise Accent Dots (Image 2)
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden select-none">
+        {/* Subtle radial depth */}
         <div
-          className="absolute inset-0 opacity-40"
+          className="absolute inset-0 pointer-events-none"
           style={{
             background:
-              'radial-gradient(circle at 50% 52%, rgba(137, 78, 255, 0.16) 0%, rgba(240, 42, 138, 0.08) 35%, transparent 68%)'
+              'radial-gradient(circle at 50% 50%, rgba(66, 39, 156, 0.26) 0%, rgba(37, 20, 54, 0.52) 60%, transparent 85%)',
           }}
         />
 
-        {/* Tiny slow-drifting micro-particles */}
-        <motion.div
-          animate={{ y: [0, -14, 0], opacity: [0.15, 0.45, 0.15] }}
-          transition={{ repeat: Infinity, duration: 6.5, ease: "easeInOut" }}
-          className="absolute top-14 left-7 w-1 h-1 rounded-full bg-[#FFC928]"
+        {/* Subtle grid dots */}
+        <div
+          className="absolute inset-0 opacity-[0.035] pointer-events-none"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle, #E3E0F5 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }}
         />
-        <motion.div
-          animate={{ y: [0, 15, 0], opacity: [0.12, 0.4, 0.12] }}
-          transition={{ repeat: Infinity, duration: 7.5, ease: "easeInOut" }}
-          className="absolute top-28 right-8 w-1.5 h-1.5 rounded-full bg-[#F02A8A]"
-        />
-        <motion.div
-          animate={{ scale: [1, 1.3, 1], opacity: [0.15, 0.35, 0.15] }}
-          transition={{ repeat: Infinity, duration: 5.8, ease: "easeInOut" }}
-          className="absolute bottom-24 left-10 w-1 h-1 rounded-full bg-[#08A98D]"
-        />
+
+        {/* Tiny magenta/pink accent dot (Upper Right - Image 2) */}
+        <div className="absolute top-[14%] right-[11%] w-1.5 h-1.5 rounded-full bg-[#F02A8A] opacity-70 pointer-events-none" />
+
+        {/* Tiny teal accent dot (Lower Left - Image 2) */}
+        <div className="absolute bottom-[20%] left-[10%] w-1.5 h-1.5 rounded-full bg-[#08A98D] opacity-65 pointer-events-none" />
       </div>
 
-      {/* 2. TOP STATUS BAR: Native Android-style Back Button + Mathematically Centered STRING X */}
-      <div className="relative flex items-center shrink-0 z-10 w-full h-10 sm:h-11">
-        {/* Back button on the far left: 40px rounded-square, dark translucent purple, subtle lavender border */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          2. TOP NAVIGATION: Back Button + Centered STRING X
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <header className="relative flex items-center justify-between shrink-0 z-20 w-full h-10">
+        {/* Back button at upper-left */}
         <button
           type="button"
           onClick={onBack}
-          className="w-10 h-10 rounded-xl bg-[#1B0B2A]/80 hover:bg-[#1B0B2A] active:translate-y-0.5 border border-[#E3E0F5]/20 flex items-center justify-center text-white transition-all cursor-pointer shadow-xs z-20"
+          className="w-9 h-9 rounded-xl bg-[#1B0B2A] hover:bg-[#230D35] active:scale-95 border border-[#894EFF]/30 flex items-center justify-center text-white transition-all cursor-pointer shadow-xs z-30"
           aria-label="Go back"
         >
-          <ArrowLeft size={18} strokeWidth={2.5} />
+          <ArrowLeft size={16} strokeWidth={2.4} />
         </button>
 
-        {/* STRING-X logo mathematically centered relative to the entire phone viewport width */}
+        {/* STRING X logo centered horizontally */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-10">
           <StringXLogo size="sm" light={true} />
         </div>
-      </div>
 
-      {/* 1. BALANCED CENTRAL COMPOSITION */}
-      <div className="flex-1 min-h-0 flex flex-col justify-center items-center text-center py-1 sm:py-2 relative z-10">
-        {/* 3. MAIN HEADING */}
-        <div className="shrink-0 mb-2 sm:mb-2.5">
-          <h1 className="text-2xl sm:text-[28px] font-black text-white tracking-tight leading-[1.12]">
-            {isMatchFound ? (
-              <span className="text-[#FFC928]">String connected!</span>
-            ) : (
-              <>
-                Your string is<br />
-                getting <span className="bg-gradient-to-r from-[#FFC928] via-[#F02A8A] to-[#894EFF] bg-clip-text text-transparent">connected.</span>
-              </>
-            )}
+        {/* Right spacer for balance */}
+        <div className="w-9 h-9 opacity-0 pointer-events-none" />
+      </header>
+
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          3. MAIN CONTENT: Heading + Pill + Radar + Progress Section
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <div className="flex-1 flex flex-col items-center justify-center relative z-20 w-full max-w-[330px] mx-auto py-1">
+        {/* MAIN HEADING (Display typography matching Image 2) */}
+        <div className="text-center shrink-0">
+          <h1 className="text-[28px] sm:text-[30px] font-black tracking-tight leading-[1.12] text-white text-center">
+            Your string is
+            <br />
+            getting{' '}
+            <span
+              className="bg-gradient-to-r from-[#FF9F28] via-[#F02A8A] to-[#894EFF] bg-clip-text text-transparent font-black"
+              style={{ WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
+            >
+              connected.
+            </span>
           </h1>
-          <p className="text-xs font-semibold text-[#E3E0F5]/75 max-w-xs mx-auto mt-1 leading-normal">
-            {isMatchFound
-              ? 'Locking connection before partner reveal…'
-              : "We're searching campus for someone who matches your energy, interests and Garba vibe."}
+
+          {/* SUPPORTING TEXT (Image 2) */}
+          <p className="text-[11px] font-medium text-[#E3E0F5]/85 mt-2 max-w-[290px] mx-auto text-center leading-[1.35]">
+            We’re searching campus for someone who matches
+            <br />
+            your energy, interests and Garba vibe.
           </p>
-        </div>
 
-        {/* 4. LIVE SEARCH STATUS (Directly Above Radar) */}
-        <div className="h-6 mb-2 flex items-center justify-center">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={isMatchFound ? 'found' : searchStatusIndex}
-              initial={{ opacity: 0, y: 3, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -3, scale: 0.96 }}
-              transition={{ duration: 0.2 }}
-              className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-[#1B0B2A]/80 border border-[#894EFF]/35 text-[11px] font-bold text-[#FFC928] shadow-[0_0_12px_rgba(137,78,255,0.15)]"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-[#FFC928] animate-pulse" />
-              <span>{isMatchFound ? '✨ Match signal synchronized!' : SEARCH_STATUS_MESSAGES[searchStatusIndex]}</span>
-            </motion.div>
-          </AnimatePresence>
-        </div>
-
-        {/* 5, 6 & 7. HERO LIVE MATCHMAKING RADAR */}
-        <div className="relative flex flex-col items-center justify-center">
-          {/* Radar Scanner Container */}
-          <div className="relative w-[218px] h-[218px] sm:w-[234px] sm:h-[234px] flex items-center justify-center">
-            {/* 5 Thin Concentric Radar Rings */}
-            <div className="absolute inset-0 rounded-full border border-[#894EFF]/25 bg-[#170924]/75 backdrop-blur-xs shadow-[0_0_40px_rgba(137,78,255,0.22)]" />
-            <div className="absolute w-[82%] h-[82%] rounded-full border border-[#894EFF]/18" />
-            <div className="absolute w-[64%] h-[64%] rounded-full border border-[#894EFF]/22" />
-            <div className="absolute w-[46%] h-[46%] rounded-full border border-[#894EFF]/28" />
-            <div className="absolute w-[28%] h-[28%] rounded-full border border-[#894EFF]/35" />
-
-            {/* Subtle Radial Axis Grid Lines */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
-              <div className="w-full h-[1px] border-b border-dashed border-white" />
-              <div className="h-full w-[1px] border-r border-dashed border-white absolute" />
-              <div className="w-full h-[1px] border-b border-dashed border-white/60 rotate-45 absolute" />
-              <div className="w-full h-[1px] border-b border-dashed border-white/60 -rotate-45 absolute" />
-            </div>
-
-            {/* Continuous Rotating Radar Sweep Beam with Glowing Leading Edge */}
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ repeat: Infinity, duration: 3.0, ease: "linear" }}
-              className="absolute inset-0 rounded-full pointer-events-none"
-              style={{
-                background:
-                  'conic-gradient(from 0deg, rgba(240, 42, 138, 0.36) 0deg, rgba(137, 78, 255, 0.16) 55deg, transparent 115deg, transparent 360deg)'
-              }}
-            >
-              {/* Glowing Leading Sweep Line */}
-              <div className="w-1/2 h-[1.5px] bg-gradient-to-r from-transparent via-[#FFC928]/85 to-[#FFC928] absolute top-1/2 right-1/2 origin-right shadow-[0_0_8px_#FFC928]" />
-            </motion.div>
-
-            {/* 6. Candidate Signals (1 to 5 dots only, newly randomized every complete sweep) */}
-            <AnimatePresence>
-              {signals.map((sig, idx) => {
-                const isTargetMatch = isMatchFound && idx === 0;
-
-                return (
-                  <motion.div
-                    key={sig.id}
-                    initial={{ opacity: 0, scale: 0.3 }}
-                    animate={{
-                      opacity: isTargetMatch ? 1 : [0.4, sig.opacity, 0.4],
-                      scale: isTargetMatch ? 1.6 : [0.85, 1.25, 0.85],
-                    }}
-                    exit={{ opacity: 0, scale: 0.2 }}
-                    transition={{
-                      repeat: isTargetMatch ? 0 : Infinity,
-                      duration: sig.pulseDuration,
-                      delay: sig.pulseDelay,
-                      ease: "easeInOut",
-                    }}
-                    style={{
-                      left: `${sig.x}%`,
-                      top: `${sig.y}%`,
-                      width: `${sig.size}px`,
-                      height: `${sig.size}px`,
-                      backgroundColor: isTargetMatch ? '#FFC928' : sig.color,
-                      boxShadow: isTargetMatch ? '0 0 16px #FFC928' : `0 0 8px ${sig.glow}`,
-                    }}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none z-10"
-                  >
-                    {/* Subtle Expanding Signal Pulse Ring */}
-                    <span
-                      style={{ borderColor: isTargetMatch ? '#FFC928' : sig.color }}
-                      className={`absolute -inset-1 rounded-full border opacity-50 ${
-                        isTargetMatch ? 'animate-ping duration-700' : 'animate-ping'
-                      }`}
-                    />
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-
-            {/* 7. RADAR CENTER ("YOU" Origin Matchmaking Node) */}
-            <div className="relative z-20 flex flex-col items-center">
-              <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#251436] border-2 border-[#FFC928] shadow-[0_0_16px_rgba(255,201,40,0.7)] flex items-center justify-center overflow-hidden">
-                {profile?.photoUrl ? (
-                  <img src={profile.photoUrl} alt="You" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-xl">🪩</span>
-                )}
-              </div>
-              <motion.div
-                animate={{ scale: [1, 2.3], opacity: [0.55, 0] }}
-                transition={{ repeat: Infinity, duration: 2.5, ease: "easeOut" }}
-                className="absolute inset-0 rounded-full border-2 border-[#FFC928]/60 pointer-events-none"
-              />
-            </div>
-          </div>
-
-          {/* 9. REDESIGNED MATCHMAKING PROGRESS (VISUALLY INTEGRATED) */}
-          <div className="w-full max-w-[260px] mt-3">
-            <div className="flex items-center justify-between text-[9.5px] font-mono font-bold text-[#E3E0F5]/60 uppercase tracking-widest mb-1 px-0.5">
-              <span>MATCHMAKING</span>
-              <span className="text-[#FFC928] font-bold">{progress}%</span>
-            </div>
-            <div className="w-full h-[5px] bg-[#1B0B2A] rounded-full overflow-hidden border border-[#894EFF]/30">
-              <motion.div
-                className="h-full bg-gradient-to-r from-[#894EFF] via-[#F02A8A] to-[#FFC928] rounded-full"
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.35, ease: "easeInOut" }}
-              />
-            </div>
-            <p className="text-[11px] font-bold text-[#FFC928] mt-1 text-center h-4">
-              {isMatchFound
-                ? '✨ Match locked! Connecting string…'
-                : 'Evaluating candidate compatibility…'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* 10. REFINED BOTTOM LIVE ACTIVITY STATUS (Human, Poetic & Seamless) */}
-      <div className="shrink-0 pb-1 flex flex-col items-center justify-center relative z-10">
-        {isMatchFound ? (
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#FFC928]/20 border border-[#FFC928]/60 text-xs font-black text-[#FFC928]"
-          >
-            <Sparkles size={14} className="text-[#FFC928] animate-spin" />
-            <span>Connecting to reveal countdown…</span>
-          </motion.div>
-        ) : (
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/5 border border-white/10 text-[11px] font-semibold text-[#E3E0F5]/70 backdrop-blur-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#08A98D] animate-ping" />
+          {/* COMPATIBILITY STATUS PILL (Yellow text & dot) */}
+          <div className="mt-3 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#180A26]/90 border border-[#894EFF]/40 shadow-[0_2px_12px_rgba(0,0,0,0.4)] select-none">
+            <span
+              className={`w-1.5 h-1.5 rounded-full shrink-0 shadow-[0_0_6px_#FFC928] ${
+                isMatchFound ? 'bg-[#08A98D]' : 'bg-[#FFC928] animate-pulse'
+              }`}
+            />
             <AnimatePresence mode="wait">
               <motion.span
-                key={bottomStatusIndex}
-                initial={{ opacity: 0, y: 2 }}
+                key={getPillText()}
+                initial={{ opacity: 0, y: 1.5 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -2 }}
-                transition={{ duration: 0.2 }}
+                exit={{ opacity: 0, y: -1.5 }}
+                transition={{ duration: 0.18 }}
+                className="text-[11.5px] font-bold text-[#FFC928] tracking-normal"
               >
-                {BOTTOM_ACTIVITY_MESSAGES[bottomStatusIndex]}
+                {getPillText()}
               </motion.span>
             </AnimatePresence>
           </div>
-        )}
+        </div>
+
+        {/* LARGE RADAR (Central Visual Element) */}
+        <div className="my-3.5 sm:my-4 shrink-0 flex items-center justify-center">
+          <div className="relative w-[218px] h-[218px] sm:w-[228px] sm:h-[228px] rounded-full bg-[#180826] border border-[#894EFF]/25 shadow-[0_0_32px_rgba(137,78,255,0.18)] flex items-center justify-center overflow-hidden">
+            {/* Concentric rings & dashed radial division lines */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 228 228">
+              {/* Outer circle */}
+              <circle cx="114" cy="114" r="106" fill="none" stroke="#894EFF" strokeWidth="0.8" strokeOpacity="0.25" />
+              {/* Circle 3 (dashed) */}
+              <circle cx="114" cy="114" r="78" fill="none" stroke="#894EFF" strokeWidth="0.8" strokeOpacity="0.22" strokeDasharray="3 3" />
+              {/* Circle 2 (dashed) */}
+              <circle cx="114" cy="114" r="52" fill="none" stroke="#894EFF" strokeWidth="0.8" strokeOpacity="0.25" strokeDasharray="3 3" />
+              {/* Circle 1 (inner ring) */}
+              <circle cx="114" cy="114" r="28" fill="none" stroke="#894EFF" strokeWidth="0.8" strokeOpacity="0.25" />
+
+              {/* Dashed radial division lines (crosshairs) */}
+              <line x1="0" y1="114" x2="228" y2="114" stroke="#894EFF" strokeWidth="0.8" strokeOpacity="0.2" strokeDasharray="3 3" />
+              <line x1="114" y1="0" x2="114" y2="228" stroke="#894EFF" strokeWidth="0.8" strokeOpacity="0.2" strokeDasharray="3 3" />
+              {/* Dashed diagonals */}
+              <line x1="34" y1="34" x2="194" y2="194" stroke="#894EFF" strokeWidth="0.6" strokeOpacity="0.12" strokeDasharray="3 3" />
+              <line x1="194" y1="34" x2="34" y2="194" stroke="#894EFF" strokeWidth="0.6" strokeOpacity="0.12" strokeDasharray="3 3" />
+            </svg>
+
+            {/* ROTATING RADAR SWEEP LINE with magenta/purple trail (Pauses when match found) */}
+            <div
+              className={`absolute inset-0 rounded-full pointer-events-none ${
+                isMatchFound ? 'opacity-40 transition-opacity duration-500' : 'animate-spin'
+              }`}
+              style={{ animationDuration: '3.6s', animationTimingFunction: 'linear' }}
+            >
+              {/* Conical magenta/purple sweep trail */}
+              <div
+                className="w-full h-full rounded-full"
+                style={{
+                  background:
+                    'conic-gradient(from 0deg at 50% 50%, rgba(255, 201, 40, 0.42) 0deg, rgba(240, 42, 138, 0.24) 22deg, rgba(137, 78, 255, 0.12) 58deg, transparent 78deg, transparent 360deg)',
+                }}
+              />
+              {/* Leading golden sweep line */}
+              <div className="absolute top-0 left-1/2 w-[1.5px] h-1/2 bg-[#FFC928] origin-bottom shadow-[0_0_8px_#FFC928]" />
+            </div>
+
+            {/* CANDIDATE POINTS with soft glowing halos */}
+            {CANDIDATE_POINTS.map((pt) => (
+              <motion.div
+                key={pt.id}
+                className="absolute pointer-events-none flex items-center justify-center"
+                style={{ left: `${pt.x}%`, top: `${pt.y}%` }}
+                animate={{
+                  opacity: isMatchFound ? 0.9 : [0.45, 1, 0.45],
+                  scale: isMatchFound ? 1.15 : [0.9, 1.2, 0.9],
+                }}
+                transition={{
+                  repeat: isMatchFound ? 0 : Infinity,
+                  duration: 2.4,
+                  delay: pt.delay,
+                  ease: 'easeInOut',
+                }}
+              >
+                {/* Soft diffused aura */}
+                <div
+                  className="w-4 h-4 rounded-full absolute opacity-35 blur-[1px]"
+                  style={{ backgroundColor: pt.color }}
+                />
+                {/* Crisp core dot */}
+                <div
+                  className="w-2 h-2 rounded-full z-10 shadow-xs"
+                  style={{ backgroundColor: pt.color }}
+                />
+              </motion.div>
+            ))}
+
+            {/* RADAR CENTER TARGET: Golden Outer Ring + Miniature Disco Ball */}
+            {/* Scanning ripple expanding from the center */}
+            <motion.div
+              className="absolute w-8 h-8 rounded-full border border-[#FFC928]/40 pointer-events-none"
+              animate={{
+                scale: [1, 2.4],
+                opacity: [0.7, 0],
+              }}
+              transition={{
+                repeat: Infinity,
+                duration: 2.2,
+                ease: 'easeOut',
+              }}
+            />
+
+            {/* Central golden circular target ring */}
+            <div className="relative z-20 w-8 h-8 rounded-full bg-[#180826] border-2 border-[#FFC928] flex items-center justify-center shadow-[0_0_14px_rgba(255,201,40,0.65)]">
+              {/* Miniature faceted silver disco ball sphere */}
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                <circle cx="8" cy="8" r="6.5" fill="#D4CEEB" />
+                <line x1="2" y1="5.5" x2="14" y2="5.5" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <line x1="1.5" y1="8" x2="14.5" y2="8" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <line x1="2" y1="10.5" x2="14" y2="10.5" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <line x1="5.5" y1="2" x2="5.5" y2="14" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <line x1="8" y1="1.5" x2="8" y2="14.5" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <line x1="10.5" y1="2" x2="10.5" y2="14" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <circle cx="6" cy="6" r="1.5" fill="#FFFFFF" opacity="0.9" />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        {/* BELOW THE RADAR (Grouped together with Warm Yellow accents) */}
+        <div className="shrink-0 w-full max-w-[270px] mx-auto">
+          {/* Top row: MATCHMAKING in lavender, percentage in Warm Yellow */}
+          <div className="flex items-center justify-between mb-1.5 px-0.5">
+            <span className="text-[10px] font-black uppercase text-[#E3E0F5]/50 tracking-widest">
+              MATCHMAKING
+            </span>
+            <span className="text-[13px] font-black text-[#FFC928] tracking-tight">
+              {progress}%
+            </span>
+          </div>
+
+          {/* Thin progress bar with purple-to-yellow gradient */}
+          <div className="w-full h-1.5 bg-[#180A26] rounded-full overflow-hidden border border-[#894EFF]/20 p-[0.5px]">
+            <div
+              className="h-full rounded-full transition-all duration-300 ease-out"
+              style={{
+                width: `${progress}%`,
+                background: 'linear-gradient(90deg, #894EFF 0%, #F02A8A 50%, #FFC928 100%)',
+              }}
+            />
+          </div>
+
+          {/* Dynamic subtext: Bright Warm Yellow as in Image 2 */}
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={getSubtext()}
+              initial={{ opacity: 0, y: 1.5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -1.5 }}
+              transition={{ duration: 0.18 }}
+              className="text-[12px] font-bold text-[#FFC928] text-center mt-1.5 tracking-normal"
+            >
+              {getSubtext()}
+            </motion.p>
+          </AnimatePresence>
+        </div>
+      </div>
+
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          4. BOTTOM STATUS: ● Finding your kind of people... (Image 2)
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <div className="shrink-0 flex justify-center z-20">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#180A26]/80 border border-[#E3E0F5]/15 shadow-xs select-none">
+          <span className="w-2 h-2 rounded-full bg-[#08A98D]/70 shrink-0" />
+          <span className="text-[11px] font-medium text-[#E3E0F5]/55 tracking-normal">
+            Finding your kind of people...
+          </span>
+        </div>
       </div>
     </div>
   );

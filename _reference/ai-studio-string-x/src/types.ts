@@ -10,7 +10,8 @@ export interface UserProfile {
   nickname: string;
   pronouns: string;
   
-  // Step 3: Age
+  // Step 3: Age & Birth Year
+  birthYear?: number;
   age: number;
   
   // Step 4: Photo
@@ -72,4 +73,6 @@ export type ScreenState =
   | 'home'
   | 'profile'
   | 'success'
-  | 'countdown';
+  | 'countdown'
+  | 'match-reveal'
+  | 'messages';

@@ -1,36 +1,92 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Phone, X } from 'lucide-react';
+import { Phone, X, Lock, AlertCircle } from 'lucide-react';
 import { PrimaryButton } from '../ui/PrimaryButton';
 
 import { supabase } from '../../lib/supabase/client';
+import { statsService } from '../../services/statsService';
 
 interface LandingScreenProps {
   onStart: () => void;
   onViewCountdown?: () => void;
   onGoogleSignIn?: () => void;
+  authError?: { title: string; message: string } | null;
+  onClearAuthError?: () => void;
 }
 
 export const LandingScreen: React.FC<LandingScreenProps> = ({
-  onStart,
+  onStart: _onStart,
   onGoogleSignIn,
+  authError,
+  onClearAuthError,
 }) => {
   const [isAuthSheetOpen, setIsAuthSheetOpen] = useState(false);
+  const [showPhoneToast, setShowPhoneToast] = useState(false);
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [userCount, setUserCount] = useState<number | null>(null);
+  const [isCountLoading, setIsCountLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. Initial count fetch from public.platform_statistics
+    statsService.getProfileCount().then((res) => {
+      if (!isMounted) return;
+      if (res.data !== null && typeof res.data === 'number') {
+        setUserCount(res.data);
+      }
+      setIsCountLoading(false);
+    }).catch(() => {
+      if (isMounted) setIsCountLoading(false);
+    });
+
+    // 2. Realtime subscription for live increments / decrements
+    const unsubscribe = statsService.subscribeToProfileCount((newCount) => {
+      if (!isMounted) return;
+      setUserCount(newCount);
+      setIsCountLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleOpenAuthSheet = () => {
     setIsAuthSheetOpen(true);
   };
 
   const handleCloseAuthSheet = () => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    setShowPhoneToast(false);
     setIsAuthSheetOpen(false);
   };
 
   const handlePhoneAuth = () => {
-    setIsAuthSheetOpen(false);
-    onStart();
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    // Briefly toggle state to re-trigger slide-in animation if tapped repeatedly
+    setShowPhoneToast(false);
+    setTimeout(() => {
+      setShowPhoneToast(true);
+      toastTimerRef.current = setTimeout(() => {
+        setShowPhoneToast(false);
+      }, 2800);
+    }, 30);
   };
 
   const handleGoogleAuth = async () => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    setShowPhoneToast(false);
     setIsAuthSheetOpen(false);
     if (onGoogleSignIn) {
       onGoogleSignIn();
@@ -159,9 +215,23 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
                 <span className="w-5 h-5 rounded-full bg-[#F02A8A] border border-[#251436] flex items-center justify-center text-[10px]">🕺</span>
                 <span className="w-5 h-5 rounded-full bg-[#08A98D] border border-[#251436] flex items-center justify-center text-[10px]">🪩</span>
               </div>
-              <span className="text-[11px] sm:text-xs font-bold text-[#E3E0F5]">
-                <strong className="text-[#FFC928]">2,400+ students</strong> ready to pair up
-              </span>
+              {isCountLoading ? (
+                <span className="text-[11px] sm:text-xs font-bold text-[#E3E0F5] inline-flex items-center gap-1.5">
+                  <span className="inline-block w-8 h-3 bg-[#FFC928]/30 rounded animate-pulse" />
+                  <span>students ready to pair up</span>
+                </span>
+              ) : userCount !== null ? (
+                <span className="text-[11px] sm:text-xs font-bold text-[#E3E0F5]">
+                  <strong className="text-[#FFC928]">
+                    {userCount.toLocaleString('en-US')} {userCount === 1 ? 'student' : 'students'}
+                  </strong>{' '}
+                  ready to pair up
+                </span>
+              ) : (
+                <span className="text-[11px] sm:text-xs font-bold text-[#E3E0F5]">
+                  <strong className="text-[#FFC928]">Students</strong> ready to pair up
+                </span>
+              )}
             </div>
           </div>
 
@@ -223,10 +293,10 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
                   handleCloseAuthSheet();
                 }
               }}
-              className="absolute inset-x-0 bottom-0 z-50 bg-[#1D0C2E] border-t-3 border-x-3 border-[#2E1647] rounded-t-[34px] sm:rounded-t-[38px] shadow-[0px_-16px_48px_rgba(15,4,25,0.9)] flex flex-col max-h-[88%] overflow-hidden text-white"
+              className="absolute inset-x-0 bottom-0 z-50 bg-[#1D0C2E] border-t-3 border-x-3 border-[#2E1647] rounded-t-[34px] sm:rounded-t-[38px] shadow-[0px_-16px_48px_rgba(15,4,25,0.9)] flex flex-col max-h-[88%] text-white"
             >
               {/* Subtle top ambient glow */}
-              <div className="absolute top-0 inset-x-0 h-28 bg-gradient-to-b from-[#894EFF]/12 via-[#894EFF]/4 to-transparent pointer-events-none rounded-t-[34px]" />
+              <div className="absolute top-0 inset-x-0 h-28 bg-gradient-to-b from-[#894EFF]/12 via-[#894EFF]/4 to-transparent pointer-events-none rounded-t-[34px] sm:rounded-t-[38px]" />
 
               {/* Natural top-right integrated Close Button */}
               <button
@@ -372,8 +442,13 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
                     <span className="tracking-tight text-left">Continue with Google</span>
                   </button>
 
+                  {/* Supporting subtext: Student emails only */}
+                  <p className="text-[11.5px] font-semibold text-[#E3E0F5]/65 text-center mt-2 sm:mt-2.5 tracking-normal select-none">
+                    Student emails only.
+                  </p>
+
                   {/* Compact & visually secondary "OR" Divider */}
-                  <div className="flex items-center my-2.5 sm:my-3 px-2">
+                  <div className="flex items-center my-2 sm:my-2.5 px-2">
                     <div className="flex-1 h-px bg-[#E3E0F5]/15" />
                     <span className="px-3.5 text-[11px] sm:text-xs font-black uppercase tracking-wider text-[#E3E0F5]/45 select-none">
                       OR
@@ -381,18 +456,23 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
                     <div className="flex-1 h-px bg-[#E3E0F5]/15" />
                   </div>
 
-                  {/* Option 2: Continue with Phone Number */}
-                  <button
+                  {/* Option 2: Continue with Phone Number (Subtle locked indicator, stays visible) */}
+                  <motion.button
                     type="button"
                     onClick={handlePhoneAuth}
-                    className="w-full h-[54px] px-5 rounded-2xl bg-[#894EFF] hover:bg-[#7b42ee] text-white border-2.5 border-[#251436] font-extrabold text-[15px] flex items-center justify-start gap-3.5 shadow-[3px_3px_0px_#251436] active:translate-y-0.5 active:shadow-[1px_1px_0px_#251436] transition-all cursor-pointer group"
+                    whileTap={{ scale: 0.98 }}
+                    className="w-full h-[54px] px-5 rounded-2xl bg-[#894EFF]/85 hover:bg-[#894EFF]/95 text-white border-2.5 border-[#251436] font-extrabold text-[15px] flex items-center justify-start gap-3.5 shadow-[3px_3px_0px_#251436] active:translate-y-0.5 active:shadow-[1px_1px_0px_#251436] transition-all cursor-pointer group opacity-90 hover:opacity-100"
                   >
                     {/* Clean Phone Icon */}
                     <div className="w-7 h-7 shrink-0 flex items-center justify-center text-[#FFC928]">
                       <Phone size={20} strokeWidth={2.4} />
                     </div>
                     <span className="tracking-tight text-left">Continue with Phone Number</span>
-                  </button>
+                    {/* Subtle lock indicator communicating phone sign-up is not available yet */}
+                    <div className="ml-auto w-6 h-6 rounded-full bg-[#1D0C2E]/40 border border-white/10 flex items-center justify-center text-[#E3E0F5]/60 group-hover:text-white/85 transition-colors shrink-0">
+                      <Lock size={12} strokeWidth={2.4} />
+                    </div>
+                  </motion.button>
                 </div>
 
                 {/* Maybe later button */}
@@ -406,8 +486,92 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                  TEMPORARY FLOATING TOAST NOTIFICATION
+                  Centered horizontally immediately above the bottom sheet
+                  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+              <AnimatePresence>
+                {showPhoneToast && (
+                  <motion.div
+                    key="phone-unavailable-toast"
+                    initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    transition={{ duration: 0.22, ease: 'easeOut' }}
+                    onClick={() => setShowPhoneToast(false)}
+                    className="absolute -top-[68px] sm:-top-[74px] inset-x-0 mx-auto w-fit max-w-[94%] z-60 pointer-events-auto cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 sm:gap-3 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-2xl bg-[#160523]/95 border border-[#F02A8A]/45 shadow-[0_8px_32px_rgba(15,3,24,0.9)] backdrop-blur-md">
+                      {/* Small Lock Icon in glowing container */}
+                      <div className="w-8 h-8 rounded-xl bg-[#2A1343] border border-[#894EFF]/40 flex items-center justify-center shrink-0 text-[#FFC928] shadow-xs">
+                        <Lock size={15} strokeWidth={2.4} />
+                      </div>
+
+                      {/* Notification Copy */}
+                      <div className="flex flex-col text-left pr-1 select-none">
+                        <span className="text-[12.5px] sm:text-[13px] font-black text-white leading-tight tracking-tight">
+                          Phone sign-up isn&apos;t available yet
+                        </span>
+                        <span className="text-[10.5px] sm:text-[11px] font-semibold text-[#E3E0F5]/70 leading-tight mt-0.5">
+                          String X currently supports Google sign-in only.
+                        </span>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* Rejection Modal for Unauthorized Google Accounts */}
+      <AnimatePresence>
+        {authError && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-5 bg-[#140620]/85 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.94, opacity: 0, y: 12 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.94, opacity: 0, y: 12 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+              className="w-full max-w-sm rounded-[24px] bg-gradient-to-b from-[#251436] to-[#180B24] border-2 border-[#FFC928]/40 shadow-[0_20px_50px_rgba(0,0,0,0.6)] p-6 text-center flex flex-col items-center select-none"
+            >
+              {/* Alert Badge */}
+              <div className="w-14 h-14 rounded-2xl bg-[#FF4F81]/15 border border-[#FF4F81]/30 flex items-center justify-center text-[#FF4F81] mb-4 shadow-[0_0_20px_rgba(255,79,129,0.25)]">
+                <AlertCircle size={28} strokeWidth={2.4} />
+              </div>
+
+              {/* Title */}
+              <h3 className="text-lg sm:text-xl font-black text-white tracking-tight leading-snug mb-2">
+                {authError.title}
+              </h3>
+
+              {/* Message */}
+              <p className="text-xs sm:text-[13px] font-medium text-[#E3E0F5]/80 leading-relaxed mb-6">
+                {authError.message}
+              </p>
+
+              {/* Action Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (onClearAuthError) {
+                    onClearAuthError();
+                  }
+                  setIsAuthSheetOpen(true);
+                }}
+                className="w-full h-[48px] px-4 rounded-xl bg-[#894EFF] hover:bg-[#7b42ee] text-white font-extrabold text-sm shadow-[0_4px_16px_rgba(137,78,255,0.4)] active:scale-[0.98] transition-all cursor-pointer"
+              >
+                Sign In with Student Account
+              </button>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

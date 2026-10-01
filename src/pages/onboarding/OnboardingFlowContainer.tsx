@@ -37,6 +37,8 @@ export interface OnboardingFlowContainerProps {
   onBackToLanding: () => void;
   onFaceVerifiedComplete?: () => void;
   onBackToHome?: () => void;
+  reverificationMode?: 'dp' | 'face' | null;
+  onReverificationDpComplete?: () => void;
 }
 
 export const OnboardingFlowContainer: React.FC<OnboardingFlowContainerProps> = ({
@@ -49,6 +51,8 @@ export const OnboardingFlowContainer: React.FC<OnboardingFlowContainerProps> = (
   onBackToLanding,
   onFaceVerifiedComplete,
   onBackToHome,
+  reverificationMode,
+  onReverificationDpComplete,
 }) => {
   const [internalStep, setInternalStep] = React.useState(initialStep);
   const step = currentStep !== undefined ? currentStep : internalStep;
@@ -110,6 +114,11 @@ export const OnboardingFlowContainer: React.FC<OnboardingFlowContainerProps> = (
       }
     }
 
+    if (step === 3 && reverificationMode === 'dp' && onReverificationDpComplete) {
+      onReverificationDpComplete();
+      return;
+    }
+
     if (step === 8 && onFaceVerifiedComplete) {
       onFaceVerifiedComplete();
       return;
@@ -126,6 +135,11 @@ export const OnboardingFlowContainer: React.FC<OnboardingFlowContainerProps> = (
     if (advanceTimerRef.current) {
       clearTimeout(advanceTimerRef.current);
       advanceTimerRef.current = null;
+    }
+
+    if (reverificationMode && onBackToHome) {
+      onBackToHome();
+      return;
     }
 
     if (step === 9 && onBackToHome) {
@@ -281,7 +295,13 @@ export const OnboardingFlowContainer: React.FC<OnboardingFlowContainerProps> = (
       {/* Anchored Bottom Navigation CTA */}
       <div className="shrink-0 px-5 sm:px-6 pt-2 pb-3 sm:pb-4 pb-[max(12px,env(safe-area-inset-bottom,0px))] bg-[#E3E0F5]">
         <PrimaryButton
-          label={step === 8 ? 'Verify & Continue' : 'Continue'}
+          label={
+            reverificationMode === 'dp' && step === 3
+              ? 'Update Photo & Return Home'
+              : step === 8
+              ? 'Verify & Continue'
+              : 'Continue'
+          }
           onClick={nextStep}
           disabled={!canContinue()}
           variant="primary"

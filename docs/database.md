@@ -1,10 +1,10 @@
 # STRING X — Database Architecture Specification
 
-> **Version:** 3.0.0  
-> **Status:** APPROVED ARCHITECTURAL SPECIFICATION (PHASE 1 ADMIN MATCHING & PREMIUM REVEAL)  
+> **Version:** 3.1.0  
+> **Status:** APPROVED ARCHITECTURAL SPECIFICATION (GOOGLE OAUTH, UNIFIED VERIFICATION & PHASE 1 MATCHING)  
 > **Target Database:** PostgreSQL 15+ (Supabase)  
 > **Target Storage:** Supabase Storage (S3-compatible)  
-> **Authentication Engine:** Supabase Auth (`auth.users`)  
+> **Authentication Engine:** Supabase Auth (`auth.users`) — Google OAuth (@paruluniversity.ac.in & Allowlist)  
 > **Client Framework:** React + TypeScript (Vite) via `@supabase/supabase-js`
 
 ---
@@ -15,8 +15,10 @@ The STRING X database architecture provides a secure, relational, highly scalabl
 
 ### Product & Operational Framework
 
+- **Identity & Institutional Auth:** Built on Supabase Auth with Google OAuth restricted to verified Parul University student accounts (`@paruluniversity.ac.in`) and an administrative bypass table (`allowed_auth_emails`).
 - **Phase 1 Manual Matchmaking:** Matches are initially curated and assigned manually by the STRING X administration team. The admin needs complete visibility over student profiles, verified phone numbers, weight, residency, premium status, assigned match pairings, and reveal states.
-- **Admin Assignment Workflow:** Admins can pair students directly using intuitive human-readable identifiers (`user_code`: `SX001`, `SX002`, ...) while the database maintains normalized, canonically ordered `matches` records.
+- **Admin Assignment Workflow:** Admins can pair students directly using intuitive human-readable identifiers (`user_code`: `SX001`, `SX002`, ...) or by setting single-value `matched_with` on event registrations. The database automatically synchronizes reciprocal registrations and maintains normalized, canonically ordered `matches` records.
+- **Unified Multi-Attempt Verification:** Profile photo (DP) and live facial selfie verifications are decoupled into `public.verification` with composite historical tracking, PostgreSQL `verification_state` ENUM, and bidirectional trigger synchronization.
 - **Synchronized Premium Reveal:** When either participant in a match becomes premium (`user_a.is_premium OR user_b.is_premium`) or when the admin triggers a manual override (`admin_reveal = true`), the pair is **synchronously revealed to BOTH participants**. The reveal state is a pair-level property, eliminating asymmetric information exposure.
 - **Future AI Engine Compatibility:** The normalized schema seamlessly supports both manual matching (`match_source = 'manual'`) and future machine learning clustering (`match_source = 'ai'`) without requiring database redesign.
 
@@ -26,33 +28,34 @@ The STRING X database architecture provides a secure, relational, highly scalabl
   │                                                                        │
   │  ┌───────────────────────┐         ┌────────────────────────────────┐  │
   │  │   auth.users          │         │       Supabase Storage         │  │
-  │  │  (Identity & Phone)   │         │  - profile-photos (Public CDN) │  │
+  │  │ (Google OAuth & Phone)│         │  - profile-photos (Public CDN) │  │
   │  └──────────┬────────────┘         │  - verifications  (Private)    │  │
   │             │                      │  - event-assets   (Public CDN) │  │
   │             ▼ 1:1 (PK = FK)        └────────────────┬───────────────┘  │
   │  ┌───────────────────────┐                          │ Storage Path     │
   │  │   public.profiles     │◄─────────────────────────┘ References       │
   │  │ (id = auth.users.id)  │                                             │
-  │  │ (user_code = SX001)   │                                             │
-  │  │ (weight_kg, is_premium│                                             │
-  │  └──────┬─────┬──────────┘                                             │
-  │         │     │                                                        │
-  │         │     └──────────────┐                                         │
-  │         ▼                    ▼                                         │
-  │  ┌──────────────┐     ┌──────────────┐         ┌────────────────────┐  │
-  │  │ Lookup &     │     │ Campus Events│         │ admin_users        │  │
-  │  │ Academic Hub │     │ & Vibe Engine│         │ (Server Role Auth) │  │
-  │  └──────────────┘     └──────┬───────┘         └─────────┬──────────┘  │
-  │                              │                           │             │
-  │                              ▼                           │             │
-  │                       ┌──────────────┐                   │             │
-  │                       │ matches      │◄──────────────────┤             │
-  │                       │(Canonical A<B│                   │             │
-  │                       │manual / ai)  │                   │             │
-  │                       └──────┬───────┘                   │             │
-  │                              │                           │             │
-  │         ┌────────────────────┴────────────────────┐      │             │
-  │         ▼                                         ▼      ▼             │
+  │  │ (user_code = SX001)   │◄─────────────────────────┐                  │
+  │  │ (email, enrollment_no)│                          │ Sync Trigger     │
+  │  │ (weight_kg, is_premium│                          │ (trg_sync_to_    │
+  │  └──────┬─────┬──────────┘                          │  profiles)       │
+  │         │     │                                     │                  │
+  │         │     ├──────────────┬──────────────────────┼──────────┐       │
+  │         ▼     ▼              ▼                      ▼          ▼       │
+  │  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐ ┌────────┐ │
+  │  │ Lookup &     │     │ Campus Events│     │ verification │ │stats & │ │
+  │  │ Academic Hub │     │ & Vibe Engine│     │(Multi-Attempt│ │allowlist││
+  │  └──────────────┘     └──────┬───────┘     │ DP & Face)   │ └────────┘ │
+  │                              │             └──────────────┘            │
+  │                              ▼                      │                  │
+  │                       ┌──────────────┐              │                  │
+  │                       │ matches      │◄─────────────┤                  │
+  │                       │(Canonical A<B│              │                  │
+  │                       │manual / ai)  │              │                  │
+  │                       └──────┬───────┘              │                  │
+  │                              │                      │                  │
+  │         ┌────────────────────┴──────────────┐       │                  │
+  │         ▼                                   ▼       ▼                  │
   │  ┌──────────────┐                          ┌──────────────┐            │
   │  │ Secure Views │                          │ Admin View   │            │
   │  │v_my_matches  │                          │v_admin_users │            │
@@ -105,6 +108,8 @@ The following columns are **not** part of the String X onboarding/profile schema
 - `nickname`: Dropped.
 - `pronouns`: Dropped.
 - `is_day_scholar`: Dropped.
+- `face_verified_at`: Dropped (moved to `public.verification`).
+- `verification_rejection_reason`: Dropped from `profiles` (stored strictly in `public.verification`).
 
 Client-writable profile fields are strictly:
 `full_name`, `gender`, `birth_year`, `university_id`, `hostel_id`, `course_id`, `study_year`, `home_state`, `height_cm`, `weight_kg`, `instagram_id`, and `onboarding_step`.
@@ -153,6 +158,61 @@ The event-scoped manual matching workflow was automated in Phase 2 (`20261001000
    - `public.v_admin_users` exposes `registered_matched_with`.
    - Frontend "Find My Match" CTA intelligently checks questionnaire completion first (routes to Step 9 if incomplete), then verifies canonical active match in the database (routes to Page 23 Countdown if active, or Page 22 Waiting Radar if searching).
 
+### 2.11 Unified Multi-Attempt Verification Subsystem & Verification State ENUM
+Introduced in migrations `20261004000001`, `20261005000001`, and `20261005000002`:
+1. **Authoritative Table (`public.verification`):**
+   - `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+   - `user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE`
+   - `profile_photo_id UUID NULL REFERENCES public.profile_photos(id) ON DELETE SET NULL`
+   - `verification_status public.verification_state NOT NULL DEFAULT 'pending'`
+   - `dp public.verification_state NOT NULL DEFAULT 'pending'`
+   - `face public.verification_state NOT NULL DEFAULT 'pending'`
+   - `face_verification_path TEXT NULL`
+   - `latitude DOUBLE PRECISION NULL`, `longitude DOUBLE PRECISION NULL`, `accuracy_m DOUBLE PRECISION NULL`
+   - `captured_at TIMESTAMPTZ NULL`
+   - `verification_rejection_reason TEXT NULL`
+   - `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`
+2. **PostgreSQL Enum (`public.verification_state`):**
+   - Explicit domain values: `'pending'`, `'verified'`, `'rejected'`.
+   - Used uniformly for `verification_status`, `dp`, and `face` columns.
+3. **Multi-Attempt Audit Trail:**
+   - There is **no unique constraint on `user_id`**; students accumulate a full historical record of verification submissions.
+   - Indexed deterministically via `idx_verification_user_created` on `(user_id, created_at DESC, id DESC)`.
+4. **Bidirectional State Synchronization (`trg_sync_verification_states`):**
+   - BEFORE trigger on `public.verification` performing in-memory normalization on the `NEW` row.
+   - **INSERT:** Deterministically forces all new verification attempts to `pending / pending / pending`.
+   - **UPDATE (Parent edit):** `pending` $\to$ `dp: pending, face: pending`; `verified` $\to$ `dp: verified, face: verified`; `rejected` $\to$ defaults to `dp: verified, face: rejected` (if neither child is rejected).
+   - **UPDATE (Child edit):** Any child `rejected` $\to$ parent `rejected`; both children `verified` $\to$ parent `verified`; otherwise parent `pending`.
+   - Restrictive `chk_verification_status_invariants` is **dropped** to enable flexible, independent child editing in Supabase Table Editor.
+5. **Profile Cache Propagation (`trg_sync_verification_to_profiles`):**
+   - AFTER trigger on `public.verification` updating `public.profiles.verification_status` strictly from the latest attempt (`ORDER BY created_at DESC, id DESC LIMIT 1`).
+   - Operates after the row operation, before transaction commit, ensuring older historical attempt edits do not corrupt active profile standing.
+
+### 2.12 Authentication Allowlist & Profile Identity Synchronization
+Introduced in migration `20261002000001`:
+1. **Developer / Tester Allowlist Table (`public.allowed_auth_emails`):**
+   - `email TEXT PRIMARY KEY`, constrained by `CHECK (email = lower(trim(email)))`.
+   - Protected by RLS: restricted exclusively to administrators (`public.is_admin()`).
+2. **Reusable Authorization & Extraction Functions:**
+   - `public.is_email_allowed(p_email TEXT)`: Validates official Parul University student pattern (`^[0-9]+@paruluniversity\.ac\.in$`) or active presence in `allowed_auth_emails`.
+   - `public.extract_enrollment_no(p_email TEXT)`: Extracts numeric enrollment ID from the email prefix (returns `NULL` for test/developer emails).
+3. **Authoritative Profile Identity Fields:**
+   - `profiles.email TEXT NOT NULL UNIQUE`
+   - `profiles.enrollment_no TEXT UNIQUE NULL` (partial unique index `idx_uq_profiles_enrollment_no`)
+4. **Trigger-Enforced Identity Immutability:**
+   - `trg_enforce_profile_email_identity`: BEFORE trigger on `public.profiles` synchronizing `email` and `enrollment_no` strictly from `auth.users`, while permitting unhindered service_role and admin maintenance.
+   - `on_auth_user_email_updated`: AFTER trigger on `auth.users` synchronizing updates into `public.profiles`.
+
+### 2.13 Real-Time Platform Statistics
+Introduced in migration `20261003000001`:
+1. **Table Structure (`public.platform_statistics`):**
+   - Singleton record: `id TEXT PRIMARY KEY DEFAULT 'global'` (constrained by `CHECK (id = 'global')`).
+   - `total_profiles INTEGER NOT NULL DEFAULT 0`, `updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`.
+2. **Synchronization Trigger (`trg_sync_platform_profile_count`):**
+   - Attached to `public.profiles` on `AFTER INSERT OR DELETE` to atomically increment and decrement `total_profiles`.
+3. **Realtime Broadcast:**
+   - Table registered in `supabase_realtime` publication, allowing anonymous and authenticated landing page visitors to subscribe to live platform user counts with zero PII exposure.
+
 ---
 
 ## 3. Server-Controlled vs User-Editable Fields
@@ -172,6 +232,12 @@ The event-scoped manual matching workflow was automated in Phase 2 (`20261001000
 │ instagram_id,         │                   │ instagram_id,              │
 │ onboarding_step       │                   │ onboarding_step.           │
 ├───────────────────────┼───────────────────┼────────────────────────────┤
+│ profiles:             │ Auth / Trigger    │ REVOKE UPDATE from client; │
+│ email, enrollment_no  │ Enforced          │ Managed via triggers       │
+│                       │                   │ trg_enforce_profile_email_ │
+│                       │                   │ identity & on_auth_user_   │
+│                       │                   │ email_updated.             │
+├───────────────────────┼───────────────────┼────────────────────────────┤
 │ profiles:             │ Admin /           │ REVOKE UPDATE from client; │
 │ user_code             │ Sequence Default  │ Populated via sequence     │
 │                       │                   │ public.generate_user_code()│
@@ -181,11 +247,17 @@ The event-scoped manual matching workflow was automated in Phase 2 (`20261001000
 │ premium_started_at,   │ Admin RPC         │ admin_set_user_premium()   │
 │ premium_expires_at    │                   │ or direct admin access.    │
 ├───────────────────────┼───────────────────┼────────────────────────────┤
-│ profiles:             │ Restricted RPC /  │ REVOKE UPDATE from client; │
-│ verification_status,  │ Admin Review      │ Mutated via submit_face_   │
-│ face_verification_path│                   │ verification() or admin RPC│
-│ face_verified_at,     │                   │ admin_verify_user().       │
-│ rejection_reason      │                   │                            │
+│ profiles:             │ Trigger / RPC     │ REVOKE UPDATE from client; │
+│ verification_status   │ Enforced          │ Propagated from latest     │
+│                       │                   │ verification attempt via   │
+│                       │                   │ sync_verification_to_      │
+│                       │                   │ profiles() AFTER trigger.  │
+├───────────────────────┼───────────────────┼────────────────────────────┤
+│ verification:         │ Student RPC /     │ Direct UPDATE revoked from │
+│ all columns           │ Admin Review      │ normal users. Inserted via │
+│                       │                   │ submit_face/dp_verification│
+│                       │                   │ RPCs; moderated via admin  │
+│                       │                   │ admin_verify_user() RPC.   │
 ├───────────────────────┼───────────────────┼────────────────────────────┤
 │ profiles:             │ Restricted RPC    │ REVOKE UPDATE from client; │
 │ onboarding_status,    │                   │ Atomic validation via      │
@@ -193,10 +265,16 @@ The event-scoped manual matching workflow was automated in Phase 2 (`20261001000
 ├───────────────────────┼───────────────────┼────────────────────────────┤
 │ matches:              │ Admin /           │ REVOKE INSERT, UPDATE,     │
 │ all columns           │ Service Role /    │ DELETE from normal users.  │
-│                       │ Admin RPC         │ Managed via admin RPCs.    │
+│                       │ Admin RPC         │ Managed via sync triggers. │
 ├───────────────────────┼───────────────────┼────────────────────────────┤
 │ connections:          │ Atomic RPC /      │ REVOKE direct client UPDATE│
 │ reveal & status       │ Service Role      │ accept_string_connection() │
+├───────────────────────┼───────────────────┼────────────────────────────┤
+│ allowed_auth_emails:  │ Admin Role        │ REVOKE ALL from client;    │
+│ all columns           │                   │ Admin RLS policy only.     │
+├───────────────────────┼───────────────────┼────────────────────────────┤
+│ platform_statistics:  │ Database Trigger  │ Read-only for client;      │
+│ all columns           │                   │ Mutated by profile trigger.│
 ├───────────────────────┼───────────────────┼────────────────────────────┤
 │ user_reports:         │ Moderator /       │ REVOKE UPDATE, DELETE;     │
 │ status, notes, resolved│ Admin Role       │ Normal users INSERT only.  │
@@ -221,12 +299,22 @@ The event-scoped manual matching workflow was automated in Phase 2 (`20261001000
   - Toggles `admin_reveal = p_reveal` and updates `revealed_at`.
 - **`admin_set_user_premium(p_user_code_or_id, p_is_premium, p_expires_at)`**:
   - Updates `is_premium`, `premium_started_at`, and `premium_expires_at`.
-- **`admin_verify_user(p_user_code_or_id, p_verified, p_rejection_reason)`**:
-  - Moderates face selfie verification.
+- **`admin_verify_user(p_user_code_or_id, p_approved, p_reject_dp, p_reject_face, p_rejection_reason)`**:
+  - Moderates latest pending verification submission.
+  - Supports approving both components (`dp: verified, face: verified`), or rejecting DP (`dp: rejected, face: verified`), Face (`dp: verified, face: rejected`), or both (`dp: rejected, face: rejected`) with mandatory rejection reason.
+  - Enum-typed and invariant-guarded.
 
 ### 4.2 Student Atomic RPCs
-- **`submit_face_verification(p_storage_path)`**: Transitions status strictly to `'pending'`.
-- **`complete_student_onboarding()`**: Validates required attributes and marks `is_profile_completed = true`.
+- **`submit_face_verification(p_storage_path TEXT, p_latitude DOUBLE PRECISION, p_longitude DOUBLE PRECISION, p_accuracy_m DOUBLE PRECISION)`**:
+  - Requires non-null geolocation telemetry as a secondary security signal.
+  - Inserts fresh verification attempt initialized to `pending / pending / pending`.
+- **`submit_dp_verification(p_profile_photo_id UUID)`**:
+  - Validates photo existence, ownership, and primary status.
+  - Inserts fresh verification attempt for DP moderation with `dp: pending, face: pending` (preserves verified face if previously verified).
+- **`complete_student_onboarding()`**:
+  - Validates required onboarding attributes.
+  - Confirms non-rejected face verification in the student's **latest attempt** directly from `public.verification`.
+  - Sets `is_profile_completed = true` and `onboarding_status = 'completed'`.
 - **`accept_string_connection(p_connection_id)`**: Serialized mutual reveal with row-level locking (`FOR UPDATE`).
 - **`cancel_event_registration(p_event_id)`**: Allows self-cancellation; denies self check-in.
 
@@ -237,7 +325,7 @@ The event-scoped manual matching workflow was automated in Phase 2 (`20261001000
   - Step 2: Reads complete active `public.profiles` row.
   - Step 3: Inserts identical profile snapshot into `public.deleted_accounts` with `deleted_at = now()`.
   - Step 4: Verifies archival insert succeeded.
-  - Step 5: Deletes active user row from `auth.users`, automatically cascading to `public.profiles`, `public.profile_photos`, `user_interests`, `matches`, and `connections`.
+  - Step 5: Deletes active user row from `auth.users`, automatically cascading to `public.profiles`, `public.profile_photos`, `public.verification`, `user_interests`, `matches`, and `connections`.
   - Safe re-registration: Because `auth.users` row is deleted, the user can immediately re-authenticate with the same Google/email account and start fresh without "user already exists" collisions.
 - **`purge_expired_deleted_accounts(p_retention_days INTEGER DEFAULT 30)`**:
   - Purges archived rows in `public.deleted_accounts` where `deleted_at < now() - INTERVAL '30 days'`.
@@ -253,7 +341,7 @@ The event-scoped manual matching workflow was automated in Phase 2 (`20261001000
 - **Face Verification Photo (Private Evidence):**
   - Captured on onboarding Step 09 (`Step09FaceVerification`).
   - Stored in the strictly private `verifications` bucket under `${userId}/face_verification_${timestamp}.${ext}`.
-  - Path stored in `public.profiles.face_verification_path` and verified via `submit_face_verification` RPC.
+  - Path stored in `public.verification.face_verification_path` and verified via `submit_face_verification` RPC.
   - **CRITICAL SECURITY GUARANTEE:** Face verification selfies are private identity evidence. They are **NEVER** used as profile avatars, main DPs, card photos, match imagery, or fallback images.
 - **Google OAuth Avatar Isolation:**
   - Google OAuth metadata (`avatar_url`, `picture`) is strictly isolated to identity authentication.
@@ -265,9 +353,9 @@ The event-scoped manual matching workflow was automated in Phase 2 (`20261001000
 
 | View Name | Scope / Target | Access Privilege | Security Objective |
 |---|---|---|---|
-| `v_matched_profiles` | Match partner profile | `authenticated` (Participants only) | Exposes partner name, photo, course, hostel strictly when the match is revealed. Omits phone, weight, and private telemetry. |
+| `v_matched_profiles` | Match partner profile | `authenticated` (Participants only) | Exposes partner name, photo, course, hostel strictly when the match is revealed. Omits phone, weight, and private verification telemetry. |
 | `v_my_matches` | Active match card | `authenticated` (Participants only) | Exposes user's own match card, partner `user_code`, compatibility score, highlights, and synchronized `is_revealed` status. |
-| `v_admin_users` | Master directory | `authenticated` (Admins only) | Exposes complete student dataset including phone (from `auth.users`), weight, verification selfies, premium status, assigned match, and reveal status. |
+| `v_admin_users` | Master directory | `authenticated` (Admins only) | Exposes complete student dataset including phone (from `auth.users`), weight, latest verification telemetry (from `public.verification` via `LATERAL`), premium status, assigned match, and reveal status. |
 
 ---
 
@@ -275,15 +363,20 @@ The event-scoped manual matching workflow was automated in Phase 2 (`20261001000
 
 - [x] **Human-Readable User ID**: Monotonic sequence and function generate non-colliding `user_code` (`SX001`, `SX002`, ...).
 - [x] **Profiles PK Model**: `profiles.id = auth.users.id` retained; zero phone duplication.
+- [x] **Email & Enrollment Identity**: `profiles.email` (NOT NULL UNIQUE) and `profiles.enrollment_no` synchronized from Supabase Auth.
+- [x] **Auth Email Allowlist**: `allowed_auth_emails` and `is_email_allowed()` enforce institutional domain restriction.
 - [x] **Restored Weight**: `weight_kg NUMERIC(5,2)` added with range validation constraint (30 to 250 kg).
 - [x] **Authoritative Premium**: `is_premium` controls active state; `premium_expires_at` retained for future subscription lifecycle.
 - [x] **Admin Authorization Model**: Server-controlled `admin_users` table and `public.is_admin()` function.
-- [x] **Complete Admin Data Access**: `v_admin_users` securely bridges `auth.users.phone` and complete profile telemetry for administrators.
+- [x] **Unified Multi-Attempt Verification**: `public.verification` with `verification_state` ENUM (`pending`, `verified`, `rejected`), multi-attempt history, and bidirectional trigger sync.
+- [x] **Real-Time Platform Statistics**: `platform_statistics` with atomic trigger maintenance and Supabase Realtime publication.
+- [x] **Complete Admin Data Access**: `v_admin_users` securely bridges `auth.users.phone`, `public.verification`, and complete profile telemetry for administrators.
 - [x] **Normalized Matches**: Canonical ordering (`user_a_id < user_b_id`); no denormalized array columns in `profiles`.
-- [x] **Phase 1 Manual Matching**: `match_source = 'manual'` and `admin_assign_match()` workflow.
+- [x] **Phase 1 Manual Matching**: `event_registrations.matched_with` single-value assignment auto-syncs canonical `matches` and `connections`.
 - [x] **Future AI Matching**: Fully compatible via `match_source = 'ai'`, `compatibility_score`, `compatibility_reasons`, and `shared_highlights`.
 - [x] **Synchronized Reveal**: Pair-level reveal evaluated uniformly across both participants.
 - [x] **Admin Reveal Override**: Admin can manually toggle `admin_reveal = true` on any match.
 - [x] **Safe Match Reassignment**: Historical matches transitioned to `'replaced'`; database trigger enforces single active match per event.
 - [x] **Event-Specific Matching**: Matches keyed to `event_id`, supporting independent multi-year festivals.
-- [x] **Client Protection**: Direct mutations on `matches`, `connections`, `admin_users`, and server-controlled profile fields denied to normal users.
+- [x] **Client Protection**: Direct mutations on `matches`, `connections`, `verification`, `admin_users`, and server-controlled profile fields denied to normal users.
+

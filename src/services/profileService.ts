@@ -4,6 +4,7 @@ import { UserProfile, DatabaseProfile } from '../types/user';
 import { ServiceResult, successResult, errorResult } from '../types/api';
 import { INITIAL_USER_PROFILE } from '../data/mockData';
 import { storageService } from './storageService';
+import { getBrowserGeolocation, GeolocationCoordinates } from '../utils/geolocation';
 
 const MOCK_PROFILE_STORAGE_KEY = 'stringx_mock_user_profile';
 
@@ -43,7 +44,7 @@ export async function loadLookups(): Promise<void> {
   if (cachedUniversities && cachedHostels && cachedCourses) return;
   if (lookupLoadPromise) return lookupLoadPromise;
 
-  lookupLoadPromise = (async () => {
+  const fetchPromise = (async () => {
     try {
       const [uniRes, hostelRes, courseRes] = await Promise.all([
         supabase.from('universities').select('id, name, slug'),
@@ -56,10 +57,14 @@ export async function loadLookups(): Promise<void> {
       if (courseRes.data) cachedCourses = courseRes.data as CourseLookup[];
     } catch (err) {
       console.warn('[profileService] Failed to load lookup tables:', err);
-    } finally {
-      lookupLoadPromise = null;
     }
   })();
+
+  const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, 5000));
+
+  lookupLoadPromise = Promise.race([fetchPromise, timeoutPromise]).finally(() => {
+    lookupLoadPromise = null;
+  });
 
   return lookupLoadPromise;
 }
@@ -314,7 +319,14 @@ export function mapProfileToDb(
 export function mapDbToProfile(
   db: DatabaseProfile | Record<string, any>,
   primaryPhotoUrl?: string,
-  eventPrefData?: Record<string, any>
+  eventPrefData?: Record<string, any>,
+  latestVerification?: {
+    verification_status?: string;
+    dp?: string;
+    face?: string;
+    rejection_reason?: string | null;
+    face_verification_path?: string | null;
+  } | null
 ): UserProfile {
   const currentYear = new Date().getFullYear();
   const birthYear = db.birth_year ? Number(db.birth_year) : null;
@@ -326,10 +338,18 @@ export function mapDbToProfile(
     eventPrefData?.most_excited_3 || (db as any).most_excited_3,
   ].filter(Boolean);
 
+  const verificationStatus = latestVerification?.verification_status || db.verification_status || 'not_started';
+  const verificationDp = latestVerification?.dp || undefined;
+  const verificationFace = latestVerification?.face || undefined;
+  const verificationRejectionReason = latestVerification?.rejection_reason ?? null;
+  const facePath = latestVerification?.face_verification_path || db.face_verification_path || (db as any).face_verification_photo || '';
+
   return {
     id: db.id || undefined,
     userCode: db.user_code || undefined,
-    collegeEmail: '',
+    email: db.email || '',
+    enrollmentNo: db.enrollment_no || undefined,
+    collegeEmail: db.email || '',
     phone: (db as any).phone || '',
     collegeName: resolveUniversityName(db.university_id),
     hostel: resolveHostelName(db.hostel_id),
@@ -344,8 +364,18 @@ export function mapDbToProfile(
     homeState: db.home_state || '',
     collegeYear: (db.study_year as UserProfile['collegeYear']) || ((db as any).college_year as UserProfile['collegeYear']) || '',
     department: resolveCourseName(db.course_id),
-    faceVerificationPhoto: db.face_verification_path || (db as any).face_verification_photo || '',
-    isFaceVerified: Boolean(db.face_verification_path || db.verification_status === 'verified' || db.verification_status === 'pending'),
+    faceVerificationPhoto: facePath,
+    isFaceVerified: Boolean(
+      verificationFace === 'verified' ||
+      verificationFace === 'pending' ||
+      verificationStatus === 'verified' ||
+      verificationStatus === 'pending' ||
+      facePath
+    ),
+    verificationStatus,
+    verificationDp,
+    verificationFace,
+    verificationRejectionReason,
     garbaLevel: eventPrefData?.garba_level || (db as any).garba_level || '',
     garbaLevelTitle: '',
     garbaEnergy: eventPrefData?.garba_energy || (db as any).garba_energy || '',
@@ -365,6 +395,7 @@ export function mapDbToProfile(
     onboardingStatus: (db as any).onboarding_status || 'in_progress',
     onboardingStep: db.onboarding_step ?? 1,
     isProfileCompleted: Boolean((db as any).is_profile_completed),
+    isEventRegistered: Boolean(eventPrefData?.isEventRegistered || (db as any).is_event_registered || eventPrefData?.id || (db as any).matched_with),
     matchedWith: eventPrefData?.matched_with || (db as any).matched_with || undefined,
   };
 }
@@ -436,7 +467,9 @@ export const profileService = {
                 .maybeSingle();
 
               if (prefData) {
-                eventPrefData = { ...prefData, matched_with: regData.matched_with };
+                eventPrefData = { ...prefData, matched_with: regData.matched_with, isEventRegistered: true };
+              } else {
+                eventPrefData = { matched_with: regData.matched_with, isEventRegistered: true };
               }
 
               // Also fetch user interests from user_interests junction table
@@ -459,7 +492,31 @@ export const profileService = {
             console.warn('[profileService] Could not rehydrate event preferences:', eventErr);
           }
 
-          return successResult(mapDbToProfile(data, primaryPhotoUrl, eventPrefData));
+          // Fetch latest verification record from public.verification table
+          let latestVerification: {
+            verification_status?: string;
+            dp?: string;
+            face?: string;
+            rejection_reason?: string | null;
+            face_verification_path?: string | null;
+          } | null = null;
+          try {
+            const { data: verData, error: verErr } = await (supabase.from('verification') as any)
+              .select('verification_status, dp, face, rejection_reason, face_verification_path')
+              .eq('user_id', userId)
+              .order('created_at', { ascending: false })
+              .order('id', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (!verErr && verData) {
+              latestVerification = verData;
+            }
+          } catch (verErr) {
+            console.warn('[profileService] Could not fetch latest verification:', verErr);
+          }
+
+          return successResult(mapDbToProfile(data, primaryPhotoUrl, eventPrefData, latestVerification));
         }
 
         // No profile row found yet
@@ -547,12 +604,12 @@ export const profileService = {
   /**
    * Securely saves the primary profile photo to the public 'profile-photos' bucket
    * and records it in public.profile_photos table with is_primary = true.
-   * Strictly isolated from face verification storage and RPCs.
+   * Calls submit_dp_verification(photoId) to create a DP verification attempt.
    */
   async savePrimaryPhoto(
     userId: string,
     photoDataUrlOrBlob: string | Blob
-  ): Promise<ServiceResult<{ publicUrl: string; path: string }>> {
+  ): Promise<ServiceResult<{ publicUrl: string; path: string; photoId?: string }>> {
     try {
       if (!isSupabaseConfigured) {
         const mockUrl = typeof photoDataUrlOrBlob === 'string'
@@ -582,20 +639,32 @@ export const profileService = {
         .eq('is_primary', true);
 
       // 3. Insert new primary photo record
-      const { error: insertErr } = await (supabase.from('profile_photos') as any)
+      const { data: insertedPhoto, error: insertErr } = await (supabase.from('profile_photos') as any)
         .insert({
           user_id: userId,
           bucket_id: 'profile-photos',
           storage_path: path,
           is_primary: true,
           upload_status: 'completed',
-        });
+        })
+        .select('id')
+        .single();
 
       if (insertErr) {
         console.warn('[profileService] Warning recording primary photo to profile_photos:', insertErr.message);
       }
 
-      return successResult({ publicUrl, path });
+      const photoId = insertedPhoto?.id;
+
+      // 4. Submit for DP verification if photoId was created
+      if (photoId) {
+        const dpRes = await profileService.submitDpVerification(photoId);
+        if (dpRes.error) {
+          console.warn('[profileService] submitDpVerification notice:', dpRes.error);
+        }
+      }
+
+      return successResult({ publicUrl, path, photoId });
     } catch (err: any) {
       console.error('[profileService] Exception in savePrimaryPhoto:', err);
       return errorResult(err.message || 'Failed to save primary photo');
@@ -603,24 +672,86 @@ export const profileService = {
   },
 
   /**
+   * Submits primary profile photo for DP verification via submit_dp_verification RPC.
+   */
+  async submitDpVerification(photoId: string): Promise<ServiceResult<any>> {
+    try {
+      if (!isSupabaseConfigured) {
+        return successResult({ success: true, verification_status: 'pending' });
+      }
+
+      if (!photoId) {
+        return errorResult('Profile photo ID is required for DP verification');
+      }
+
+      const { data, error } = await (supabase.rpc as any)('submit_dp_verification', {
+        p_profile_photo_id: photoId,
+      });
+
+      if (error) {
+        console.error('[DP_VERIFICATION] submit_dp_verification RPC error:', error);
+        return errorResult(error.message, error.code, error);
+      }
+
+      console.log('[DP_VERIFICATION] submit_dp_verification RPC SUCCESS:', data);
+      return successResult(data);
+    } catch (err: any) {
+      console.error('[DP_VERIFICATION] Exception in submitDpVerification:', err);
+      return errorResult(err.message || 'DP verification submission failed');
+    }
+  },
+
+  /**
    * Submits face verification selfie to private 'verifications' storage and calls submit_face_verification RPC.
+   * Strictly requires non-null geolocation telemetry (p_latitude, p_longitude, p_accuracy_m).
    */
   async submitFaceVerification(
     userId: string,
-    photoDataUrl: string
-  ): Promise<ServiceResult<{ path: string }>> {
+    photoDataUrl: string,
+    coords?: GeolocationCoordinates
+  ): Promise<ServiceResult<{ path: string; verificationId?: string }>> {
     try {
       if (!isSupabaseConfigured) {
         return successResult({ path: `${userId}/mock_face_verification.jpg` });
       }
 
+      // Geolocation coordinates must be real browser coordinates captured with the verification attempt
+      let finalCoords = coords;
+      if (!finalCoords) {
+        try {
+          finalCoords = await getBrowserGeolocation();
+        } catch (geoErr: any) {
+          console.error('[FACE_VERIFICATION] Geolocation error:', geoErr);
+          return errorResult(
+            geoErr.message || 'Location access is required for face verification. Please enable GPS permissions and try again.'
+          );
+        }
+      }
+
+      if (
+        finalCoords.latitude === undefined ||
+        finalCoords.longitude === undefined ||
+        finalCoords.accuracy === undefined ||
+        isNaN(finalCoords.latitude) ||
+        isNaN(finalCoords.longitude) ||
+        isNaN(finalCoords.accuracy)
+      ) {
+        return errorResult('Valid geolocation coordinates are required for face verification.');
+      }
+
       // 1. Upload to Supabase Storage in private 'verifications' bucket
       const uploadRes = await storageService.uploadVerificationDataUrl(photoDataUrl, userId);
-      const storagePath = uploadRes.data?.path || `${userId}/face_verification_${Date.now()}.jpg`;
+      if (uploadRes.error || !uploadRes.data?.path) {
+        return errorResult(uploadRes.error?.message || 'Failed to upload verification photo');
+      }
+      const storagePath = uploadRes.data.path;
 
-      // 2. Call secure server-side RPC submit_face_verification
+      // 2. Call secure server-side RPC submit_face_verification with all 4 parameters
       const { data, error } = await (supabase.rpc as any)('submit_face_verification', {
         p_storage_path: storagePath,
+        p_latitude: finalCoords.latitude,
+        p_longitude: finalCoords.longitude,
+        p_accuracy_m: finalCoords.accuracy,
       });
 
       if (error) {
@@ -629,7 +760,7 @@ export const profileService = {
       }
 
       console.log('[FACE_VERIFICATION] submit_face_verification RPC SUCCESS:', data);
-      return successResult({ path: storagePath });
+      return successResult({ path: storagePath, verificationId: data?.verification_id });
     } catch (err: any) {
       console.error('[FACE_VERIFICATION] Exception in submitFaceVerification:', err);
       return errorResult(err.message || 'Face verification submission failed');
@@ -637,43 +768,16 @@ export const profileService = {
   },
 
   /**
-   * Validates required columns and atomically calls complete_student_onboarding() RPC.
-   * Required columns per RPC:
-   * full_name, gender, university_id, course_id, study_year, home_state, height_cm, face_verification_path.
+   * Atomically calls complete_student_onboarding() RPC.
+   * Public.verification is the authoritative verification state.
    */
-  async completeStudentOnboarding(userId: string): Promise<ServiceResult<any>> {
+  async completeStudentOnboarding(_userId?: string): Promise<ServiceResult<any>> {
     try {
       if (!isSupabaseConfigured) {
         return successResult({ success: true, onboarding_status: 'completed' });
       }
 
-      // 1. Verify required fields exist on public.profiles
-      const { data: profileRow, error: fetchError } = await (supabase.from('profiles') as any)
-        .select('full_name, gender, university_id, course_id, study_year, home_state, height_cm, face_verification_path')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (fetchError || !profileRow) {
-        console.warn('[COMPLETE_ONBOARDING] Could not fetch profile to verify required fields:', fetchError);
-        return errorResult(fetchError?.message || 'Profile not found');
-      }
-
-      const missing: string[] = [];
-      if (!profileRow.full_name?.trim()) missing.push('full_name');
-      if (!profileRow.gender?.trim()) missing.push('gender');
-      if (!profileRow.university_id) missing.push('university_id');
-      if (!profileRow.course_id) missing.push('course_id');
-      if (!profileRow.study_year?.trim()) missing.push('study_year');
-      if (!profileRow.home_state?.trim()) missing.push('home_state');
-      if (!profileRow.height_cm || profileRow.height_cm <= 0) missing.push('height_cm');
-      if (!profileRow.face_verification_path) missing.push('face_verification_path');
-
-      if (missing.length > 0) {
-        console.warn('[COMPLETE_ONBOARDING] Cannot call complete_student_onboarding yet. Missing fields:', missing);
-        return errorResult(`Cannot complete onboarding. Missing required fields: ${missing.join(', ')}`);
-      }
-
-      // 2. Call public.complete_student_onboarding() RPC
+      // Call authoritative database RPC complete_student_onboarding() directly
       const { data, error } = await (supabase.rpc as any)('complete_student_onboarding');
       if (error) {
         console.error('[COMPLETE_ONBOARDING] RPC complete_student_onboarding error:', error);
@@ -690,7 +794,7 @@ export const profileService = {
 
   /**
    * Evaluates whether the user has completely registered according to database truth:
-   * onboarding_status = 'completed' AND is_profile_completed = true
+   * onboarding_status = 'completed' OR is_profile_completed = true
    */
   isRegistrationCompleted(profile: UserProfile | null): boolean {
     return isRegistrationCompleted(profile);
@@ -730,13 +834,52 @@ export const profileService = {
       profile.instagramId
     );
   },
+
+  /**
+   * Evaluates whether the user is eligible to start or continue matching.
+   * Student-facing behavior:
+   *   pending  -> approved for matching
+   *   verified -> approved for matching
+   *   rejected -> matching locked
+   */
+  canUseMatching(profile: UserProfile | null): boolean {
+    return canUseMatching(profile);
+  },
+
+  /**
+   * Evaluates whether the user has registered for the event.
+   */
+  isEventRegistered(profile: UserProfile | null): boolean {
+    return isEventRegistered(profile);
+  },
 };
 
 /**
  * Helper to determine whether onboarding is completely registered based on database state:
- * onboarding_status === 'completed' AND is_profile_completed === true
+ * onboarding_status === 'completed' OR is_profile_completed === true
  */
 export function isRegistrationCompleted(profile: UserProfile | null): boolean {
   if (!profile) return false;
-  return profile.onboardingStatus === 'completed' && Boolean(profile.isProfileCompleted);
+  return profile.onboardingStatus === 'completed' || Boolean(profile.isProfileCompleted);
+}
+
+/**
+ * Evaluates whether the user is eligible for matching actions.
+ * Only verification_status = 'rejected' blocks matching.
+ * 'pending' and 'verified' are treated as approved.
+ */
+export function canUseMatching(profile: UserProfile | null): boolean {
+  if (!profile) return false;
+  return profile.verificationStatus !== 'rejected';
+}
+
+/**
+ * Evaluates whether the user has registered for the event based on persisted database state.
+ */
+export function isEventRegistered(profile: UserProfile | null): boolean {
+  if (!profile) return false;
+  return Boolean(
+    profile.isEventRegistered ||
+    profile.matchedWith
+  );
 }

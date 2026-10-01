@@ -4,6 +4,65 @@ All notable changes and architectural refactorings for STRING X are documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.11.0] - 2026-10-05
+
+### Added
+- **Verification State Enum & Bidirectional Synchronization:**
+  - Converted `verification_status`, `dp`, and `face` columns in `public.verification` from `TEXT` to `public.verification_state` ENUM (`pending`, `verified`, `rejected`).
+  - Dropped restrictive `chk_verification_status_invariants` constraint to enable independent component editing in Supabase Table Editor.
+  - Implemented `public.sync_verification_states()` BEFORE trigger performing deterministic in-memory parent/child bidirectional synchronization:
+    - `INSERT`: Deterministically forces new attempts to `pending / pending / pending`.
+    - `UPDATE (Parent edit)`: `pending` $\to$ `dp: pending, face: pending`; `verified` $\to$ `dp: verified, face: verified`; `rejected` $\to$ defaults to `dp: verified, face: rejected`.
+    - `UPDATE (Child edit)`: Any child `rejected` $\to$ parent `rejected`; both children `verified` $\to$ parent `verified`; otherwise parent `pending`.
+  - Implemented `public.sync_verification_to_profiles()` AFTER trigger updating `public.profiles.verification_status` from the student's authoritative latest attempt (`ORDER BY created_at DESC, id DESC`).
+  - Executed one-time profile reconciliation in migration `20261005000002_verification_bidirectional_sync.sql`.
+  - Enforced verification-based matchmaking access control: `rejected` status locks matching actions while retaining general app access.
+
+---
+
+## [2.10.0] - 2026-10-04
+
+### Added
+- **Unified Multi-Attempt Verification Subsystem:**
+  - Created `public.verification` table supporting composite multi-attempt history per student (no unique constraint on `user_id`, indexed by `user_id, created_at DESC, id DESC`).
+  - Decoupled public profile photo (DP) moderation from private biometric facial selfie verification.
+  - Updated `submit_face_verification(p_storage_path, p_latitude, p_longitude, p_accuracy_m)` RPC requiring non-null geolocation telemetry.
+  - Added `submit_dp_verification(p_profile_photo_id UUID)` RPC for dedicated profile photo moderation.
+  - Safely dropped `face_verified_at` and `verification_rejection_reason` from `public.profiles`.
+  - Recreated `public.v_admin_users` projecting latest verification telemetry via `LATERAL` join.
+  - Redefined `admin_verify_user` with independent DP/Face moderation and mandatory rejection reason.
+  - Updated `complete_student_onboarding()` to verify active attempt directly from `public.verification`.
+  - Created migration `20261004000001_unified_verification_system.sql`.
+
+---
+
+## [2.9.0] - 2026-10-03
+
+### Added
+- **Platform Statistics & Realtime Sync:**
+  - Created `public.platform_statistics` table with singleton `'global'` row.
+  - Implemented `sync_platform_profile_count()` trigger function on `public.profiles` (`AFTER INSERT OR DELETE`) maintaining `total_profiles` atomically.
+  - Configured public read RLS policy (`FOR SELECT TO anon, authenticated USING (true)`).
+  - Registered `public.platform_statistics` in the `supabase_realtime` publication for instant reactive client counters.
+  - Created migration `20261003000001_platform_statistics.sql`.
+
+---
+
+## [2.8.0] - 2026-10-02
+
+### Added
+- **Authentication Allowlist & Profile Identity Schema:**
+  - Adopted Supabase Google OAuth as primary authentication flow across the application.
+  - Created `public.allowed_auth_emails` allowlist table with administrator RLS.
+  - Added `public.is_email_allowed(p_email TEXT)` validator for official Parul University student pattern (`^[0-9]+@paruluniversity\.ac\.in$`) or allowlist presence.
+  - Added `public.extract_enrollment_no(p_email TEXT)` extracting numeric student enrollment prefix.
+  - Added `email` (`NOT NULL UNIQUE`) and `enrollment_no` (`UNIQUE NULL`) to `public.profiles`.
+  - Implemented `trg_enforce_profile_email_identity` (BEFORE trigger) and `on_auth_user_email_updated` (AFTER trigger) for server-enforced email immutability.
+  - Updated `handle_new_user()` trigger to initialize profile stubs with validated email and enrollment number.
+  - Created migration `20261002000001_auth_email_allowlist.sql`.
+
+---
+
 ## [2.7.0] - 2026-10-01
 
 ### Added

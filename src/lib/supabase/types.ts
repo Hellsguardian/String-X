@@ -17,6 +17,8 @@ export interface Database {
         Row: {
           id: string;
           user_code?: string;
+          email?: string;
+          enrollment_no?: string | null;
           user_id?: string;
           phone?: string;
           college_name?: string;
@@ -75,6 +77,16 @@ export interface Database {
         };
         Insert: Partial<Database['public']['Tables']['deleted_accounts']['Row']>;
         Update: Partial<Database['public']['Tables']['deleted_accounts']['Row']>;
+        Relationships: [];
+      };
+      platform_statistics: {
+        Row: {
+          id: string;
+          total_profiles: number;
+          updated_at: string;
+        };
+        Insert: Partial<Database['public']['Tables']['platform_statistics']['Row']>;
+        Update: Partial<Database['public']['Tables']['platform_statistics']['Row']>;
         Relationships: [];
       };
       profile_photos: {
@@ -213,6 +225,18 @@ export interface Database {
         };
         Insert: Partial<Database['public']['Tables']['matches']['Row']>;
         Update: Partial<Database['public']['Tables']['matches']['Row']>;
+        Relationships: [];
+      };
+      allowed_auth_emails: {
+        Row: {
+          email: string;
+        };
+        Insert: {
+          email: string;
+        };
+        Update: {
+          email?: string;
+        };
         Relationships: [];
       };
     };

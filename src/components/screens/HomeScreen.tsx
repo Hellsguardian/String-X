@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, AlertTriangle, Bell, Camera, Image as ImageIcon } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { profileService } from '../../services/profileService';
+import { NotificationsPopover } from '../ui/NotificationsPopover';
 
 interface HomeScreenProps {
   profile: UserProfile;
   onSelectNavratri: () => void | Promise<void>;
   onOpenProfile: () => void;
+  onOpenCountdown?: () => void;
+  onReverifyFace?: () => void;
+  onUpdatePhoto?: () => void;
   ctaText?: string;
   isChecking?: boolean;
 }
@@ -120,16 +124,54 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   profile,
   onSelectNavratri,
   onOpenProfile,
+  onOpenCountdown,
+  onReverifyFace,
+  onUpdatePhoto,
   ctaText,
   isChecking: isCheckingProp,
 }) => {
   const [localChecking, setLocalChecking] = useState(false);
+  const [hasUnreadNotification, setHasUnreadNotification] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const isChecking = isCheckingProp ?? localChecking;
+
+  // Check matching eligibility and event registration state
+  const isMatchingAvailable = profileService.canUseMatching(profile);
+  const isRegistered = profileService.isEventRegistered(profile);
+  const isMatched = Boolean(profile.matchedWith);
+
+  const handleNotificationClick = () => {
+    setIsNotificationsOpen((prev) => !prev);
+    setHasUnreadNotification(false);
+  };
+
+  const handleNotificationAction = (actionType: 'string' | 'profile' | 'pass' | 'general') => {
+    if (actionType === 'string') {
+      if (onOpenCountdown) {
+        onOpenCountdown();
+      } else {
+        handleSelectNavratri();
+      }
+    } else if (actionType === 'profile') {
+      onOpenProfile();
+    } else if (actionType === 'pass') {
+      handleSelectNavratri();
+    }
+  };
 
   const handleSelectNavratri = async () => {
     if (isChecking) return;
     setLocalChecking(true);
     try {
+      if (!isMatchingAvailable) {
+        // If rejected, clicking CTA explicitly launches the correction flow
+        if (profile.verificationFace === 'rejected' && profile.verificationDp !== 'rejected') {
+          onReverifyFace?.();
+        } else {
+          onUpdatePhoto?.();
+        }
+        return;
+      }
       await onSelectNavratri();
     } catch (err) {
       console.error('[HomeScreen] Error navigating to event:', err);
@@ -143,39 +185,57 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     ? profile.fullName.trim().split(' ')[0]
     : 'there';
 
-  // Main avatar displays only photoUrl uploaded in photo onboarding, never face verification
-  const avatarPhoto = profile.photoUrl;
+  // Main avatar displays photoUrl uploaded in photo onboarding, falling back to verification photo
+  const avatarPhoto = profile.photoUrl || profile.faceVerificationPhoto;
 
-  // Determine dynamic CTA button text based on event questionnaire completion
-  const isNavratriDone = profileService.isNavratriCompleted(profile);
-  const buttonLabel = ctaText || (isNavratriDone ? 'View Match Status' : 'Find My Match');
+  // Determine dynamic CTA button text and supporting copy based on verification & registration status
+  let buttonLabel = ctaText;
+  if (!buttonLabel) {
+    if (isMatched) {
+      buttonLabel = 'View Match Status';
+    } else if (!isMatchingAvailable) {
+      buttonLabel = isRegistered ? 'Verify to Resume Matching' : 'Verify to Join Matching';
+    } else if (isRegistered) {
+      buttonLabel = 'View Match Status';
+    } else {
+      buttonLabel = 'Find My Match';
+    }
+  }
+
   const displayLabel = isChecking ? 'Checking your match...' : buttonLabel;
+
+  const supportingText = !isMatchingAvailable
+    ? isRegistered
+      ? 'Your verification needs attention before you can continue with matching.'
+      : 'Complete verification to register for Navratri matching.'
+    : 'Match by vibe, energy & dance style.';
 
   return (
     <div className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-start bg-[#E3E0F5] text-[#251436] select-none overflow-hidden relative font-['Plus_Jakarta_Sans',sans-serif]">
       {/* ================================================================== */}
-      {/* 1. TOP APP BAR (Centrally Anchored STRING X Logo, Avatar on Right)   */}
+      {/* 1. TOP APP BAR (Centrally Anchored STRING X, Bell & Avatar on Right) */}
       {/* ================================================================== */}
-      <header className="shrink-0 relative flex items-center justify-between px-5 sm:px-6 pt-[max(14px,env(safe-area-inset-top,0px))] pb-3 z-20">
-        {/* Left Spacer to perfectly balance the right avatar */}
-        <div className="w-9 h-9 shrink-0" aria-hidden="true" />
+      <header className="shrink-0 relative flex items-center justify-between px-5 sm:px-6 pt-[max(14px,env(safe-area-inset-top,0px))] pb-2.5 z-20">
+        {/* Left balance spacer matching right controls width */}
+        <div className="w-[84px] shrink-0" aria-hidden="true" />
 
-        {/* CENTER: Strong STRING X Wordmark */}
-        <div className="flex items-center gap-1.5 select-none">
-          <div className="flex items-center tracking-tight text-[22px] sm:text-[24px] font-black text-[#251436]">
+        {/* CENTER: Refined STRING X Branding */}
+        <div className="flex-1 flex justify-center items-center">
+          <div className="flex items-center tracking-tight text-[21px] sm:text-[23px] font-black text-[#251436] select-none">
             <span>STRING</span>
             <span className="mx-1" />
             <span className="text-[#F02A8A] relative">
               X
+              {/* Signature curved string accent under X */}
               <svg
-                className="absolute -bottom-1 left-0 w-full h-1.5 overflow-visible"
+                className="absolute -bottom-1 left-0 w-full h-1.5 overflow-visible pointer-events-none"
                 viewBox="0 0 18 5"
                 fill="none"
               >
                 <path
                   d="M1 1C5 4 13 4 17 1"
                   stroke="#FFC928"
-                  strokeWidth="1.8"
+                  strokeWidth="2"
                   strokeLinecap="round"
                 />
               </svg>
@@ -183,51 +243,150 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </div>
 
-        {/* Right: Circular Profile Avatar with Active Dot */}
-        <button
-          type="button"
-          onClick={onOpenProfile}
-          aria-label="View profile and settings"
-          className="relative w-9 h-9 rounded-full border border-[#251436]/15 bg-white flex items-center justify-center p-0.5 ring-2 ring-white/70 hover:ring-[#894EFF]/30 active:scale-95 transition-all cursor-pointer shrink-0 shadow-2xs"
-        >
-          <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-tr from-[#894EFF] to-[#B085FF] flex items-center justify-center text-white font-black text-xs">
-            {avatarPhoto ? (
-              <img
-                src={avatarPhoto}
-                alt={profile.fullName || 'User avatar'}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span>{firstName.charAt(0) || 'U'}</span>
+        {/* RIGHT: Unified Action Controls (Notification Bell & Profile Avatar) */}
+        <div className="w-[84px] shrink-0 flex items-center justify-end gap-2">
+          {/* Notification Bell Icon Button */}
+          <motion.button
+            type="button"
+            onClick={handleNotificationClick}
+            whileTap={{ scale: 0.9 }}
+            aria-label="Notifications"
+            className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full border shadow-2xs flex items-center justify-center transition-all cursor-pointer ${
+              isNotificationsOpen
+                ? 'bg-[#251436] text-white border-[#894EFF]/50 shadow-[0_0_12px_rgba(137,78,255,0.3)]'
+                : 'bg-white/90 text-[#251436] border-[#251436]/12 hover:text-[#894EFF] hover:border-[#894EFF]/30 hover:bg-white'
+            }`}
+          >
+            <Bell size={18} strokeWidth={2.2} />
+            {/* Subtle Pink Notification Indicator Badge */}
+            {hasUnreadNotification && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#F02A8A] ring-2 ring-white" />
             )}
-          </div>
-          {/* Green online/active indicator */}
-          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#10B981] border-2 border-white shadow-2xs" />
-        </button>
+          </motion.button>
+
+          {/* Profile Avatar Button */}
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            aria-label="View profile and settings"
+            className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-[#251436]/12 bg-white/90 shadow-2xs flex items-center justify-center p-0.5 hover:border-[#894EFF]/35 hover:ring-2 hover:ring-[#894EFF]/15 active:scale-95 transition-all cursor-pointer"
+          >
+            <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-tr from-[#894EFF] to-[#B085FF] flex items-center justify-center text-white font-black text-xs">
+              {avatarPhoto ? (
+                <img
+                  src={avatarPhoto}
+                  alt={profile.fullName || 'User avatar'}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>{firstName.charAt(0) || 'U'}</span>
+              )}
+            </div>
+            {/* Green active status indicator */}
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#10B981] border-2 border-white shadow-2xs" />
+          </button>
+        </div>
       </header>
+
+      {/* Floating Notifications Popover */}
+      <NotificationsPopover
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        onSelectAction={handleNotificationAction}
+      />
 
       {/* Subtle Hairline Divider Underneath App Bar */}
       <div className="w-full px-5 sm:px-6 shrink-0">
-        <div className="w-full h-[1px] bg-[#251436]/8" />
+        <div className="w-full h-px bg-[#251436]/6" />
       </div>
 
       {/* ================================================================== */}
       {/* 2. MAIN BODY (Spacious, Minimal, Direct Event Presentation)         */}
       {/* ================================================================== */}
-      <main className="w-full px-5 sm:px-6 pt-5 pb-4 flex-1 flex flex-col justify-start overflow-hidden">
-        {/* 1. PLAYFUL YELLOW EVENT TAG */}
+      <main className="w-full px-5 sm:px-6 pt-3.5 sm:pt-4 pb-4 flex-1 flex flex-col justify-start overflow-y-auto no-scrollbar">
+        {/* Verification Status Banner if Rejected */}
+        {profile.verificationStatus === 'rejected' && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-3.5 p-3 sm:p-3.5 rounded-2xl bg-[#FFF0F3] border border-[#FF4F81]/40 shadow-xs flex flex-col gap-2 shrink-0"
+          >
+            <div className="flex items-start gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-[#FF4F81]/15 text-[#F02A8A] flex items-center justify-center shrink-0 mt-0.5">
+                <AlertTriangle size={18} strokeWidth={2.4} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs sm:text-sm font-bold text-[#800020] tracking-tight">
+                    {profile.verificationFace === 'rejected' && profile.verificationDp === 'rejected'
+                      ? 'Photo & Selfie Verification Rejected'
+                      : profile.verificationFace === 'rejected'
+                      ? 'Face Verification Rejected'
+                      : 'Profile Photo Rejected'}
+                  </h3>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#F02A8A] bg-[#FF4F81]/15 px-2 py-0.5 rounded-full">
+                    Action Needed
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs text-[#251436]/80 mt-0.5 font-medium leading-relaxed">
+                  {profile.verificationRejectionReason ||
+                    (profile.verificationFace === 'rejected' && profile.verificationDp === 'rejected'
+                      ? 'Both your profile photo and face selfie were rejected. Please update both components to get verified.'
+                      : profile.verificationFace === 'rejected'
+                      ? 'Your face verification selfie was rejected. Please take a clear, well-lit selfie.'
+                      : 'Your profile photo was rejected. Please upload a clear photo where your face is visible.')}
+                </p>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2 pt-1 border-t border-[#FF4F81]/20">
+              {(profile.verificationDp === 'rejected' ||
+                (profile.verificationFace !== 'rejected' && profile.verificationDp !== 'verified')) && (
+                <button
+                  type="button"
+                  onClick={onUpdatePhoto}
+                  className="flex-1 h-8 px-3 rounded-lg bg-[#251436] hover:bg-[#382050] active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                >
+                  <ImageIcon size={13} />
+                  <span>Update Profile Photo</span>
+                </button>
+              )}
+
+              {(profile.verificationFace === 'rejected' ||
+                (profile.verificationDp !== 'rejected' && profile.verificationFace !== 'verified')) && (
+                <button
+                  type="button"
+                  onClick={onReverifyFace}
+                  className="flex-1 h-8 px-3 rounded-lg bg-[#F02A8A] hover:bg-[#d61e76] active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                >
+                  <Camera size={13} />
+                  <span>Re-verify Face</span>
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* 1. REFINED EVENT CATEGORY PILL */}
         <div className="mb-2 shrink-0">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[#FFC928] text-[#251436] font-black text-[11px] tracking-wider uppercase border border-[#251436]/35 shadow-[1.5px_1.5px_0px_#251436] transform -rotate-1 select-none">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#FFC928] text-[#251436] font-black text-[10.5px] sm:text-[11px] tracking-wider uppercase border border-[#251436]/30 shadow-[1.5px_1.5px_0px_#251436] select-none">
             <span className="w-1.5 h-1.5 rounded-full bg-[#251436]" />
             <span>CAMPUS EVENTS</span>
           </div>
         </div>
 
-        {/* 2. EVENT TITLE */}
+        {/* 2. EDITORIAL EVENT TITLE & CONTEXT */}
         <div className="mb-3.5 shrink-0">
-          <h1 className="text-2xl sm:text-[28px] font-black text-[#251436] tracking-tight leading-tight">
-            NAVRATRI 2026
+          <h1 className="text-[26px] sm:text-[30px] font-black tracking-tight text-[#251436] leading-none flex items-baseline gap-2">
+            <span>NAVRATRI</span>
+            <span className="text-[#894EFF] font-black text-[20px] sm:text-[22px] tracking-tight">
+              2026
+            </span>
           </h1>
+          <p className="text-xs sm:text-[13px] font-semibold text-[#251436]/60 mt-1 tracking-tight">
+            Find your people. Find your vibe.
+          </p>
         </div>
 
         {/* 3. COMPACT NAVRATRI EVENT BANNER */}
@@ -259,7 +418,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
             {/* Short Concise Description */}
             <p className="text-xs sm:text-[13px] text-white/80 font-medium leading-relaxed">
-              Match by vibe, energy &amp; dance style.
+              {supportingText}
             </p>
 
             {/* Compact Metadata Row */}
@@ -277,13 +436,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <button
                 type="button"
                 id="find-my-match-btn"
-                aria-label={isChecking ? 'Checking your match' : 'Find My Match for Navratri 2026'}
+                aria-label={isChecking ? 'Checking your match' : displayLabel}
                 aria-busy={isChecking}
                 disabled={isChecking}
                 onClick={handleSelectNavratri}
                 className={`w-full h-[44px] px-4 font-bold text-xs sm:text-sm rounded-[13px] transition-all flex items-center justify-center gap-2 ${
                   isChecking
                     ? 'bg-[#894EFF]/85 text-white/90 cursor-not-allowed shadow-none'
+                    : !isMatchingAvailable && !isMatched
+                    ? 'bg-[#F02A8A] hover:bg-[#d61e76] active:bg-[#b81462] active:scale-[0.99] text-white shadow-[0_2px_12px_rgba(240,42,138,0.4)] cursor-pointer group'
                     : 'bg-[#894EFF] hover:bg-[#783cee] active:bg-[#6a2fdb] active:scale-[0.99] text-white shadow-[0_2px_12px_rgba(137,78,255,0.4)] cursor-pointer group'
                 }`}
               >

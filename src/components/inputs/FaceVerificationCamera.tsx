@@ -14,9 +14,10 @@ import {
   DetectedFaceGeometry,
   VideoViewportTransform,
 } from '../../utils/faceValidation';
+import { getBrowserGeolocation, GeolocationCoordinates } from '../../utils/geolocation';
 
 interface FaceVerificationCameraProps {
-  onCapture: (photoUrl: string) => void;
+  onCapture: (photoUrl: string, coordinates?: GeolocationCoordinates) => void;
   onRetake: () => void;
   initialPhoto?: string;
   isConfirmed?: boolean;
@@ -48,10 +49,19 @@ export const FaceVerificationCamera: React.FC<FaceVerificationCameraProps> = ({
   const isFaceValidRef = useRef<boolean>(false);
   const stabilityStartRef = useRef<number | null>(null);
   const isCapturingRef = useRef<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
   const consecutiveValidRef = useRef<number>(0);
   const consecutiveInvalidRef = useRef<number>(0);
   const detectionIntervalRef = useRef<number | null>(null);
   const progressAnimFrameRef = useRef<number | null>(null);
+
+  // Dedicated location state & references for the current verification attempt
+  const [, setLocationStatus] = useState<
+    'idle' | 'requesting' | 'captured' | 'denied' | 'unavailable' | 'error'
+  >('idle');
+  const capturedLocationRef = useRef<GeolocationCoordinates | null>(null);
+  const locationPromiseRef = useRef<Promise<GeolocationCoordinates> | null>(null);
+  const locationErrorRef = useRef<string | null>(null);
 
   // Detectors
   const nativeDetectorRef = useRef<any>(null);
@@ -60,6 +70,38 @@ export const FaceVerificationCamera: React.FC<FaceVerificationCameraProps> = ({
 
   // Required continuous stability duration (1.25s) before auto-capture
   const STABILITY_DURATION_MS = 1250;
+
+  // Immediately initiate location capture for the current verification attempt
+  const initiateLocationCapture = useCallback(() => {
+    capturedLocationRef.current = null;
+    locationErrorRef.current = null;
+    setLocationStatus('requesting');
+
+    const promise = getBrowserGeolocation();
+    locationPromiseRef.current = promise;
+
+    promise
+      .then((coords) => {
+        if (!isMountedRef.current || locationPromiseRef.current !== promise) return;
+        capturedLocationRef.current = coords;
+        setLocationStatus('captured');
+        locationErrorRef.current = null;
+      })
+      .catch((err: any) => {
+        if (!isMountedRef.current || locationPromiseRef.current !== promise) return;
+        capturedLocationRef.current = null;
+        locationErrorRef.current =
+          err?.message ||
+          'Location permission is required for face verification. Please enable location access in your browser settings and try again.';
+        if (err?.code === 1 || err?.message?.toLowerCase().includes('denied')) {
+          setLocationStatus('denied');
+        } else {
+          setLocationStatus('error');
+        }
+      });
+
+    return promise;
+  }, []);
 
   // Initialize native browser FaceDetector API if available, plus load pico cascade
   useEffect(() => {
@@ -106,8 +148,8 @@ export const FaceVerificationCamera: React.FC<FaceVerificationCameraProps> = ({
     }
   }, []);
 
-  // Capture frame from video feed to canvas
-  const captureFrame = useCallback(() => {
+  // Capture frame from video feed to canvas using the pre-captured or in-flight geolocation
+  const captureFrame = useCallback(async () => {
     if (isCapturingRef.current || !videoRef.current) return;
     isCapturingRef.current = true;
 
@@ -132,6 +174,41 @@ export const FaceVerificationCamera: React.FC<FaceVerificationCameraProps> = ({
       ctx.drawImage(video, 0, 0, width, height);
 
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
+      // 1. Check if location has ALREADY been captured on mount/during scanning
+      let coords: GeolocationCoordinates | null = capturedLocationRef.current;
+
+      // 2. If location is still in-flight, await the ongoing promise (do NOT request location again)
+      if (!coords && locationPromiseRef.current) {
+        try {
+          coords = await locationPromiseRef.current;
+          capturedLocationRef.current = coords;
+        } catch (locErr: any) {
+          console.error('[FaceVerificationCamera] Geolocation acquisition failed during resolution:', locErr);
+          isCapturingRef.current = false;
+          setErrorMessage(
+            locErr.message ||
+              locationErrorRef.current ||
+              'Location permission is required for face verification. Please enable location access and try again.'
+          );
+          setCameraState('error');
+          stopCameraStream();
+          return;
+        }
+      }
+
+      // 3. If location could not be captured or was denied, block submission
+      if (!coords) {
+        isCapturingRef.current = false;
+        setErrorMessage(
+          locationErrorRef.current ||
+            'Location permission is required for face verification. Please enable location access and try again.'
+        );
+        setCameraState('error');
+        stopCameraStream();
+        return;
+      }
+
       setCapturedPhoto(dataUrl);
       setCameraState('captured');
 
@@ -142,7 +219,7 @@ export const FaceVerificationCamera: React.FC<FaceVerificationCameraProps> = ({
       setIsFullscreen(false);
 
       stopCameraStream();
-      onCapture(dataUrl);
+      onCapture(dataUrl, coords);
     }
   }, [onCapture, stopCameraStream]);
 
@@ -430,15 +507,20 @@ export const FaceVerificationCamera: React.FC<FaceVerificationCameraProps> = ({
     }
   }, [runDetection, stopCameraStream]);
 
-  // Start camera on mount if not already confirmed
+  // Start camera and location capture on mount if not already confirmed
   useEffect(() => {
+    isMountedRef.current = true;
     if (!initialPhoto) {
+      initiateLocationCapture();
       startCamera();
     }
     return () => {
+      isMountedRef.current = false;
+      locationPromiseRef.current = null;
+      capturedLocationRef.current = null;
       stopCameraStream();
     };
-  }, [initialPhoto, startCamera, stopCameraStream]);
+  }, [initialPhoto, initiateLocationCapture, startCamera, stopCameraStream]);
 
   // Handle Fullscreen toggle
   const toggleFullscreen = () => {
@@ -471,9 +553,13 @@ export const FaceVerificationCamera: React.FC<FaceVerificationCameraProps> = ({
     };
   }, []);
 
-  // Handle retake action
+  // Handle retake action: resets previous attempt and starts fresh location capture
   const handleRetake = () => {
     setCapturedPhoto(null);
+    capturedLocationRef.current = null;
+    locationErrorRef.current = null;
+    locationPromiseRef.current = null;
+    initiateLocationCapture();
     onRetake();
     startCamera();
   };

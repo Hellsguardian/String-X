@@ -12,7 +12,7 @@ export const DEV_SCREENS: DevScreenInfo[] = [
   { number: '02', stepIndex: 2, label: 'Phone Sign-Up' },
   { number: '03', stepIndex: 3, label: 'Name & Gender' },
   { number: '04', stepIndex: 4, label: 'University & Hostel' },
-  { number: '05', stepIndex: 5, label: 'Age Selection' },
+  { number: '05', stepIndex: 5, label: 'Birth Year Check' },
   { number: '06', stepIndex: 6, label: 'Photo Upload' },
   { number: '07', stepIndex: 7, label: 'Height & Weight' },
   { number: '08', stepIndex: 8, label: 'Home State' },
@@ -29,9 +29,11 @@ export const DEV_SCREENS: DevScreenInfo[] = [
   { number: '19', stepIndex: 19, label: 'Prompt 01' },
   { number: '20', stepIndex: 20, label: 'Prompt 02' },
   { number: '21', stepIndex: 21, label: 'Instagram ID' },
-  { number: '22', stepIndex: 22, label: 'Submission Success' },
+  { number: '22', stepIndex: 22, label: 'Finding Your Match' },
   { number: '23', stepIndex: 23, label: 'Countdown' },
-  { number: '24', stepIndex: 24, label: 'My Profile & Settings' },
+  { number: '24', stepIndex: 24, label: 'Match Reveal' },
+  { number: '25', stepIndex: 25, label: 'Message Screen' },
+  { number: '26', stepIndex: 26, label: 'My Profile & Settings' },
 ];
 
 interface DevScreenRailProps {
@@ -72,8 +74,14 @@ export const DevScreenRail: React.FC<DevScreenRailProps> = ({
     if (currentScreen === 'countdown') {
       return 23;
     }
-    if (currentScreen === 'profile') {
+    if (currentScreen === 'match-reveal') {
       return 24;
+    }
+    if (currentScreen === 'messages') {
+      return 25;
+    }
+    if (currentScreen === 'profile') {
+      return 26;
     }
     return 1;
   })();

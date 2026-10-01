@@ -4,13 +4,14 @@ This document provides the visual and structural Entity-Relationship Diagram (ER
 
 ---
 
-## 1. Complete System ERD (17 Physical Tables + 3 Projection Views)
+## 1. Complete System ERD (18 Physical Tables + 3 Projection Views)
 
 ```mermaid
 erDiagram
     "auth.users" ||--|| profiles : "identifies (1:1 PK = FK)"
     "auth.users" ||--o{ admin_users : "admin role (1:1)"
     "auth.users" ||--o{ matches : "audits/creates (created_by)"
+    "auth.users" ||--o{ verification : "attempts (1:N)"
     
     universities ||--o{ profiles : "enrolled in (N:1)"
     hostels ||--o{ profiles : "resides in (N:1, composite FK)"
@@ -21,6 +22,8 @@ erDiagram
     profiles ||--o{ profile_photos : "owns (1:N, owner-only RLS)"
     profiles ||--o{ user_interests : "has (1:N, owner-only RLS)"
     interests ||--o{ user_interests : "tagged by (1:N)"
+    
+    profile_photos ||--o{ verification : "moderates (0..1:N)"
     
     events ||--o{ event_registrations : "hosts (1:N)"
     universities ||--o{ events : "hosts campus (N:1)"
@@ -47,9 +50,20 @@ erDiagram
 
     "auth.users" {
         uuid id PK "Supabase internal auth identifier"
-        text phone UK "Verified E.164 phone number (Single Source of Truth)"
+        text email UK "Google OAuth authenticated email"
+        text phone "Optional verified phone number"
         timestamptz created_at "Account creation timestamp"
-        timestamptz phone_confirmed_at "SMS OTP verification timestamp"
+        timestamptz email_confirmed_at "OAuth confirmation timestamp"
+    }
+
+    allowed_auth_emails {
+        text email PK "Normalized lowercase developer/tester email bypass"
+    }
+
+    platform_statistics {
+        text id PK "Singleton 'global'"
+        integer total_profiles "Trigger-maintained registered profile count"
+        timestamptz updated_at
     }
 
     admin_users {
@@ -105,6 +119,8 @@ erDiagram
     profiles {
         uuid id PK, FK "Primary Key matching auth.users.id"
         text user_code UK "Admin-facing human-readable ID (SX001, SX002, ...)"
+        text email UK "Authoritative user email synchronized from auth.users"
+        text enrollment_no "Extracted numeric university enrollment number"
         text full_name "Legal/display name"
         text gender "'Female' | 'Male' | 'Non-binary'"
         smallint birth_year "Year of birth (1990-2015)"
@@ -116,10 +132,8 @@ erDiagram
         smallint height_cm "Height in centimeters"
         numeric weight_kg "Restored weight in kg (30-250 kg)"
         text instagram_id "Verified social handle"
-        text verification_status "'not_started' | 'pending' | 'verified' | 'failed'"
-        text face_verification_path "Storage path in verifications bucket"
-        timestamptz face_verified_at
-        text verification_rejection_reason "Internal moderation reason"
+        text verification_status "'pending' | 'verified' | 'rejected' (Cached from latest verification attempt)"
+        text face_verification_path "Transitional compatibility storage path"
         boolean is_premium "Authoritative active premium state (Phase 1)"
         timestamptz premium_started_at
         timestamptz premium_expires_at "Future subscription expiry"
@@ -128,6 +142,22 @@ erDiagram
         boolean is_profile_completed "Completed core onboarding"
         timestamptz created_at
         timestamptz updated_at
+    }
+
+    verification {
+        uuid id PK "Unique verification attempt identifier"
+        uuid user_id FK "References auth.users.id (Multi-attempt history)"
+        uuid profile_photo_id FK "References profile_photos.id ON DELETE SET NULL"
+        verification_state verification_status "'pending' | 'verified' | 'rejected'"
+        verification_state dp "'pending' | 'verified' | 'rejected'"
+        verification_state face "'pending' | 'verified' | 'rejected'"
+        text face_verification_path "Private storage path in verifications bucket"
+        float latitude "Geolocation latitude capture"
+        float longitude "Geolocation longitude capture"
+        float accuracy_m "Geolocation accuracy radius in meters"
+        timestamptz captured_at "Selfie capture timestamp"
+        text verification_rejection_reason "Internal moderation feedback"
+        timestamptz created_at "Attempt creation timestamp"
     }
 
     profile_photos {
@@ -147,6 +177,8 @@ erDiagram
     deleted_accounts {
         uuid id PK "Original profile UUID (NO FK to auth.users)"
         text user_code "Admin-facing code at deletion"
+        text email "User email at deletion"
+        text enrollment_no "Enrollment number at deletion"
         text full_name "Full name"
         text gender "Gender"
         smallint birth_year "Year of birth"
@@ -160,8 +192,6 @@ erDiagram
         text instagram_id "Instagram handle"
         text verification_status "Identity status at deletion"
         text face_verification_path "Verification selfie storage path"
-        timestamptz face_verified_at "Verification timestamp"
-        text verification_rejection_reason "Rejection reason if any"
         boolean is_premium "Premium status at deletion"
         timestamptz premium_started_at "Premium start"
         timestamptz premium_expires_at "Premium expiry"
@@ -335,13 +365,24 @@ classDiagram
         +numeric weight_kg
         +text instagram_id
         +text verification_status
+        +uuid verification_id
+        +uuid profile_photo_id
+        +text verification_dp
+        +text verification_face
         +text face_verification_path
+        +float latitude
+        +float longitude
+        +float accuracy_m
+        +timestamptz captured_at
+        +text verification_rejection_reason
+        +timestamptz verification_created_at
         +boolean is_premium
         +timestamptz premium_started_at
         +timestamptz premium_expires_at
         +uuid active_match_id
         +text partner_user_code
         +text partner_full_name
+        +text registered_matched_with
         +boolean admin_reveal
         +boolean is_revealed
     }
@@ -350,5 +391,6 @@ classDiagram
     
     note for v_my_matches "security_barrier = true, security_invoker = false.\nExposes active match card to participants.\nComputes pair-level synchronized is_revealed boolean."
 
-    note for v_admin_users "security_barrier = true, security_invoker = false.\nFiltered by WHERE public.is_admin() = true.\nProvides master user directory with phone from auth.users,\nweight, verification, premium, and assigned match status."
+    note for v_admin_users "security_barrier = true, security_invoker = false.\nFiltered by WHERE public.is_admin() = true.\nProvides master user directory with phone from auth.users,\nweight, latest unified verification telemetry via LATERAL join,\npremium, and assigned match status."
 ```
+

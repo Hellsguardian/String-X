@@ -250,8 +250,8 @@ export const eventService = {
         }
       }
 
-      // Local storage fallback
-      if (typeof window !== 'undefined') {
+      // Local storage fallback strictly for offline / unconfigured mode
+      if (!isSupabaseConfigured && typeof window !== 'undefined') {
         const stored = localStorage.getItem(MOCK_EVENT_REGISTRATIONS_KEY);
         const map = stored ? JSON.parse(stored) : {};
         map[eventId] = registration;
@@ -334,10 +334,13 @@ export const eventService = {
             completedAt: reg.registered_at ? new Date(reg.registered_at).getTime() : Date.now(),
           });
         }
+
+        // Supabase is configured and query returned no row: user is not registered
+        return successResult(null);
       }
 
-      // Local storage fallback
-      if (typeof window !== 'undefined') {
+      // Offline / Mock fallback strictly when Supabase is not configured
+      if (!isSupabaseConfigured && typeof window !== 'undefined') {
         const stored = localStorage.getItem(MOCK_EVENT_REGISTRATIONS_KEY);
         if (stored) {
           const map = JSON.parse(stored);

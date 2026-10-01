@@ -7,6 +7,11 @@ import { INITIAL_USER_PROFILE } from '../../../data/mockData';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
+export interface AuthErrorNotice {
+  title: string;
+  message: string;
+}
+
 export interface AuthContextValue {
   status: AuthStatus;
   loading: boolean;
@@ -17,6 +22,9 @@ export interface AuthContextValue {
   isAuthenticated: boolean;
   isOnboardingCompleted: boolean;
   isNavratriCompleted: boolean;
+  authError: AuthErrorNotice | null;
+  setAuthErrorNotice: (notice: AuthErrorNotice | null) => void;
+  clearAuthError: () => void;
   sendPhoneOtp: (phone: string) => Promise<{ success: boolean; error?: string }>;
   verifyPhoneOtp: (phone: string, token: string) => Promise<{ success: boolean; error?: string; isExistingUser?: boolean }>;
   signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
@@ -36,54 +44,144 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile>(INITIAL_USER_PROFILE);
   const [profileLoading, setProfileLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<AuthErrorNotice | null>(null);
 
-  // Load user profile helper
+  const inFlightProfilePromiseRef = React.useRef<Map<string, Promise<void>>>(new Map());
+  const hasInitializedAuthRef = React.useRef<boolean>(false);
+
+  const clearAuthError = useCallback(() => {
+    setAuthError(null);
+  }, []);
+
+  const setAuthErrorNotice = useCallback((notice: AuthErrorNotice | null) => {
+    setAuthError(notice);
+  }, []);
+
+  // Load user profile helper with deduplication & guaranteed finally cleanup
   const loadUserProfile = useCallback(async (userId: string, authUser?: User | null) => {
-    setProfileLoading(true);
-    const res = await profileService.getProfile(userId);
-    if (res.data) {
-      const userMeta = authUser?.user_metadata || {};
-      const seededName = res.data.fullName || userMeta.full_name || userMeta.name || '';
-      const seededProfile: UserProfile = {
-        ...res.data,
-        id: res.data.id || userId,
-        fullName: seededName,
-        collegeEmail: res.data.collegeEmail || authUser?.email || '',
-        // Google OAuth profile picture must NEVER automatically become the user's main photo
-        photoUrl: res.data.photoUrl || '',
-      };
-      setProfile(seededProfile);
-
-      // If database has empty full_name but OAuth provided a valid name, persist to DB immediately
-      if ((!res.data.fullName || res.data.fullName.trim() === '') && seededName.trim()) {
-        profileService.saveProfile(userId, { fullName: seededName.trim() }).catch((err) => {
-          console.warn('[AuthContext] Auto-saving OAuth name failed:', err);
-        });
-      }
+    if (!userId) {
+      setProfileLoading(false);
+      return;
     }
-    setProfileLoading(false);
+
+    // Deduplicate in-flight profile load for the same user ID
+    const existing = inFlightProfilePromiseRef.current.get(userId);
+    if (existing) {
+      return existing;
+    }
+
+    const taskPromise = (async () => {
+      setProfileLoading(true);
+      try {
+        const res = await profileService.getProfile(userId);
+        const userMeta = authUser?.user_metadata || {};
+        const seededName = res.data?.fullName || userMeta.full_name || userMeta.name || '';
+
+        if (res.data) {
+          const seededProfile: UserProfile = {
+            ...res.data,
+            id: res.data.id || userId,
+            fullName: seededName,
+            collegeEmail: res.data.collegeEmail || authUser?.email || '',
+            // Google OAuth profile picture must NEVER automatically become the user's main photo
+            photoUrl: res.data.photoUrl || '',
+          };
+          setProfile(seededProfile);
+
+          // If database has empty full_name but OAuth provided a valid name, persist to DB immediately
+          if ((!res.data.fullName || res.data.fullName.trim() === '') && seededName.trim()) {
+            profileService.saveProfile(userId, { fullName: seededName.trim() }).catch((err) => {
+              console.warn('[AuthContext] Auto-saving OAuth name failed:', err);
+            });
+          }
+        } else {
+          // Safe fallback for authenticated session if profile fetch returned error
+          setProfile((prev) => ({
+            ...prev,
+            id: userId,
+            fullName: prev.fullName || seededName,
+            collegeEmail: prev.collegeEmail || authUser?.email || '',
+          }));
+        }
+      } catch (err) {
+        console.error('[AuthContext] Exception in loadUserProfile:', err);
+        setProfile((prev) => ({
+          ...prev,
+          id: userId,
+          collegeEmail: prev.collegeEmail || authUser?.email || '',
+        }));
+      } finally {
+        setProfileLoading(false);
+        inFlightProfilePromiseRef.current.delete(userId);
+      }
+    })();
+
+    inFlightProfilePromiseRef.current.set(userId, taskPromise);
+    return taskPromise;
   }, []);
 
   // Initial session check on mount
   useEffect(() => {
     let isMounted = true;
 
-    async function initAuth() {
-      const res = await authService.getSession();
+    // Safety timeout (8s): guarantees UI never deadlocks in 'loading' status
+    const safetyTimeout = setTimeout(() => {
       if (!isMounted) return;
+      setStatus((currentStatus) => {
+        if (currentStatus === 'loading') {
+          console.warn('[AuthContext] Initial auth resolution safety timeout reached (8s).');
+          return user ? 'authenticated' : 'unauthenticated';
+        }
+        return currentStatus;
+      });
+      setProfileLoading(false);
+    }, 8000);
 
-      if (res.data?.session && res.data?.user) {
-        setUser(res.data.user);
-        setSession(res.data.session);
-        // Load database profile BEFORE setting status to authenticated to avoid race condition/flash
-        await loadUserProfile(res.data.user.id, res.data.user);
+    async function initAuth() {
+      try {
+        const res = await authService.getSession();
         if (!isMounted) return;
-        setStatus('authenticated');
-      } else {
-        setUser(null);
-        setSession(null);
-        setStatus('unauthenticated');
+
+        if (res.data?.session && res.data?.user) {
+          // Enforce university email allowlist for email/Google users
+          if (res.data.user.email) {
+            const isPermitted = await authService.isEmailPermitted(res.data.user.email);
+            if (!isPermitted) {
+              console.warn('[AuthContext] Unauthorized email rejected on init:', res.data.user.email);
+              await authService.signOut();
+              if (!isMounted) return;
+              setUser(null);
+              setSession(null);
+              setProfile(INITIAL_USER_PROFILE);
+              setStatus('unauthenticated');
+              setProfileLoading(false);
+              setAuthError({
+                title: 'Parul University Account Required',
+                message: 'Please sign in with your official Parul University Google account (@paruluniversity.ac.in) to access StringX.',
+              });
+              return;
+            }
+          }
+
+          setUser(res.data.user);
+          setSession(res.data.session);
+          // Load database profile BEFORE setting status to authenticated to avoid race condition/flash
+          await loadUserProfile(res.data.user.id, res.data.user);
+          if (!isMounted) return;
+          setStatus('authenticated');
+        } else {
+          setUser(null);
+          setSession(null);
+          setStatus('unauthenticated');
+          setProfileLoading(false);
+        }
+      } catch (err) {
+        console.error('[AuthContext] Exception in initAuth:', err);
+        if (!isMounted) return;
+        setStatus((prev) => (prev === 'loading' ? (user ? 'authenticated' : 'unauthenticated') : prev));
         setProfileLoading(false);
+      } finally {
+        hasInitializedAuthRef.current = true;
       }
     }
 
@@ -103,12 +201,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (newSession?.user) {
+        // Enforce university email allowlist on auth state change (e.g. OAuth redirect)
+        if (newSession.user.email) {
+          const isPermitted = await authService.isEmailPermitted(newSession.user.email);
+          if (!isPermitted) {
+            console.warn('[AuthContext] Unauthorized email rejected on auth state change:', newSession.user.email);
+            await authService.signOut();
+            if (!isMounted) return;
+            setUser(null);
+            setSession(null);
+            setProfile(INITIAL_USER_PROFILE);
+            setStatus('unauthenticated');
+            setProfileLoading(false);
+            setAuthError({
+              title: 'Parul University Account Required',
+              message: 'Please sign in with your official Parul University Google account (@paruluniversity.ac.in) to access StringX.',
+            });
+            return;
+          }
+        }
+
         setUser(newSession.user);
         setSession(newSession);
-        // Load database profile BEFORE setting status to authenticated to prevent race conditions
-        await loadUserProfile(newSession.user.id, newSession.user);
-        if (!isMounted) return;
-        setStatus('authenticated');
+
+        // Deduplicate INITIAL_SESSION if initAuth() is already actively handling it
+        if (event === 'INITIAL_SESSION' && hasInitializedAuthRef.current) {
+          return;
+        }
+
+        try {
+          await loadUserProfile(newSession.user.id, newSession.user);
+          if (!isMounted) return;
+          setStatus('authenticated');
+        } catch (authLoadErr) {
+          console.error('[AuthContext] Error loading user profile on auth state change:', authLoadErr);
+          if (!isMounted) return;
+          setStatus('authenticated');
+          setProfileLoading(false);
+        }
       } else if (event === 'INITIAL_SESSION' && !newSession) {
         setUser(null);
         setSession(null);
@@ -119,6 +249,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimeout);
       unsubscribe();
     };
   }, [loadUserProfile]);
@@ -191,7 +322,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Handle biometric face verification selfie upload and RPC submission
     if (updates.faceVerificationPhoto && updates.faceVerificationPhoto.startsWith('data:')) {
-      await profileService.submitFaceVerification(targetUserId, updates.faceVerificationPhoto);
+      const faceRes = await profileService.submitFaceVerification(
+        targetUserId,
+        updates.faceVerificationPhoto,
+        updates.faceCoordinates || profile.faceCoordinates
+      );
+      if (faceRes.error) {
+        console.error('[AUTH_CONTEXT] Face verification submission error:', faceRes.error);
+      }
     }
 
     const result = await profileService.saveProfile(targetUserId, updates, latestProfile, step);
@@ -267,6 +405,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: status === 'authenticated',
         isOnboardingCompleted,
         isNavratriCompleted,
+        authError,
+        setAuthErrorNotice,
+        clearAuthError,
         signInWithGoogle,
         sendPhoneOtp,
         verifyPhoneOtp,

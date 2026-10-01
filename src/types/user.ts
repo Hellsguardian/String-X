@@ -5,6 +5,8 @@
 export interface UserProfile {
   id?: string;
   userCode?: string;
+  email?: string;
+  enrollmentNo?: string | null;
   // Step 1: Account
   collegeEmail: string;
   phone: string;
@@ -38,6 +40,13 @@ export interface UserProfile {
   // Step 11: Face Verification
   faceVerificationPhoto?: string;
   isFaceVerified?: boolean;
+  faceCoordinates?: { latitude: number; longitude: number; accuracy: number };
+
+  // Unified Verification System Status
+  verificationStatus?: 'not_started' | 'pending' | 'verified' | 'rejected' | string;
+  verificationDp?: 'pending' | 'verified' | 'rejected' | string;
+  verificationFace?: 'pending' | 'verified' | 'rejected' | string;
+  verificationRejectionReason?: string | null;
   
   // Step 12 & 13: Garba Profile
   garbaLevel: string;
@@ -75,6 +84,7 @@ export interface UserProfile {
   onboardingStatus?: string;
   onboardingStep?: number;
   isProfileCompleted?: boolean;
+  isEventRegistered?: boolean;
   matchedWith?: string | null;
 }
 
@@ -84,6 +94,8 @@ export interface UserProfile {
 export interface DatabaseProfile {
   id: string;
   user_code?: string;
+  email?: string;
+  enrollment_no?: string | null;
   full_name: string;
   gender: string;
   birth_year?: number | null;

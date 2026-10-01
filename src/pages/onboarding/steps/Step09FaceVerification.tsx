@@ -27,16 +27,18 @@ export const Step09FaceVerification: React.FC<Step09FaceVerificationProps> = ({
       <FaceVerificationCamera
         initialPhoto={profile.faceVerificationPhoto}
         isConfirmed={profile.isFaceVerified}
-        onCapture={(photoUrl) =>
+        onCapture={(photoUrl, coords) =>
           onUpdateProfile({
             faceVerificationPhoto: photoUrl,
             isFaceVerified: true,
+            faceCoordinates: coords,
           })
         }
         onRetake={() =>
           onUpdateProfile({
             faceVerificationPhoto: undefined,
             isFaceVerified: false,
+            faceCoordinates: undefined,
           })
         }
       />

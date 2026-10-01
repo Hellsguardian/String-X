@@ -136,8 +136,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           !!profile.hostel &&
           profile.hostel.trim().length > 0
         );
-      case 2: // Age (Screen 05)
-        return profile.age >= 15 && profile.age <= 28;
+      case 2: // Birth Year / Age Check (Screen 05)
+        return (
+          typeof profile.birthYear === 'number' &&
+          profile.birthYear >= 1996 &&
+          profile.birthYear <= 2010
+        );
       case 3: // Photo (Screen 06)
         return !!profile.photoUrl;
       case 4: // Combined Height & Weight (Screen 07)
@@ -271,22 +275,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               </div>
             )}
 
-            {/* STEP 2: Age (Screen 04 in flow) */}
+            {/* STEP 2: Birth Year / Age Check (Screen 04 in flow) */}
             {step === 2 && (
               <div className="space-y-4">
                 <div>
                   <PlayfulBadge text="AGE CHECK" color="yellow" tilt="left" />
                   <h2 className="text-3xl font-black text-[#251436] tracking-tight mt-2">
-                    How old are you?
+                    What's your birth year?
                   </h2>
                   <p className="text-xs font-semibold text-[#251436]/70 mt-1">
-                    Swipe or tap to set your age.
+                    Swipe or tap to select your birth year.
                   </p>
                 </div>
 
                 <AgeSelector
-                  value={profile.age}
-                  onChange={(age) => onUpdateProfile({ age })}
+                  value={profile.birthYear}
+                  onChange={(birthYear) => {
+                    const currentYear = new Date().getFullYear();
+                    onUpdateProfile({ birthYear, age: currentYear - birthYear });
+                  }}
                 />
               </div>
             )}

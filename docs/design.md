@@ -15,9 +15,11 @@ Defined in `src/index.css` and applied across components:
 | **Deep Plum** | `--sx-bg-dark`, `--sx-text`, `--sx-border` | `#251436` | Primary text, borders, dark cards, countdown background |
 | **Canvas Lavender** | `--sx-bg-light` | `#E3E0F5` | Main application background, light surface |
 | **Vibrant Purple** | `--sx-purple` | `#894EFF` | Primary action buttons, brand accents, glowing indicators |
-| **Hot Pink** | `--sx-pink` | `#F02A8A` | Signature STRING X string, dancer silhouettes, playful badges |
-| **Festive Yellow**| `--sx-yellow` | `#FFC928` | Event highlight tags, celebration sparkles, secondary buttons |
-| **Emerald Teal** | `--sx-teal` | `#08A98D` | Verification badges, safety assurances, success confirmations |
+| **Hot Pink** | `--sx-pink` | `#F02A8A` | Signature STRING X string, dancer silhouettes, playful badges, alert accents |
+| **Festive Yellow**| `--sx-yellow` | `#FFC928` | Event highlight tags, celebration sparkles, pending verification status |
+| **Emerald Teal** | `--sx-teal` | `#08A98D` | Verification badges, safety assurances, verified student checkmarks |
+| **Alert Maroon** | — | `#800020` | Rejection banner headlines and critical error alerts |
+| **Alert Pink Soft**| — | `#FFF0F3` | Rejection banner container background with `#FF4F81` border |
 | **Track Lavender**| `--sx-track` | `#D4CEEF` | Inactive sliders, progress tracks, disabled button backgrounds |
 | **Muted Border** | `--sx-muted-border` | `#B8B0C5` | Subtle dividers and hairline card borders |
 | **Pure White** | `--sx-white` | `#FFFFFF` | Input backgrounds, modal cards, pill buttons |
@@ -25,7 +27,19 @@ Defined in `src/index.css` and applied across components:
 
 ---
 
-## 3. Typography
+## 3. Verification State Semantic Visual Treatment
+
+The verification subsystem renders explicit visual cues across three authoritative states:
+
+| Verification State | Visual Indicators | UI Component Treatment | Matchmaking Access |
+|---|---|---|---|
+| **`pending`** | Amber / Yellow (`#FFC928`) | Default state upon onboarding submission; displays pending badges and allows continued exploration. | Allowed to participate in event registration |
+| **`verified`** | Emerald Teal (`#08A98D`) | Green verification check beside user name in profile and home; verified student trust badge active. | Full matchmaking participation unlocked |
+| **`rejected`** | Alert Pink (`#FFF0F3` bg, `#800020` text, `#F02A8A` badge) | Dynamic rejection alert card at top of `/home`; shows specific reason and targeted action buttons (`Update Profile Photo` / `Re-verify Face`). | **LOCKED** (CTA redirects to correction flow) |
+
+---
+
+## 4. Typography
 
 - **Primary Font Family:** `'Plus Jakarta Sans', sans-serif` (Imported via Google Fonts in `index.html`).
 - **Heading Styles:**
@@ -39,7 +53,7 @@ Defined in `src/index.css` and applied across components:
 
 ---
 
-## 4. Neo-Brutalist Border & Shadow System
+## 5. Neo-Brutalist Border & Shadow System
 
 STRING X relies on sharp, high-contrast borders and solid offset drop shadows rather than blurry elevation:
 
@@ -57,7 +71,7 @@ STRING X relies on sharp, high-contrast borders and solid offset drop shadows ra
 
 ---
 
-## 5. Animation Conventions (`motion/react`)
+## 6. Animation Conventions (`motion/react`)
 
 1. **Step Page Transitions:**
    ```tsx
@@ -82,7 +96,7 @@ STRING X relies on sharp, high-contrast borders and solid offset drop shadows ra
 
 ---
 
-## 6. Viewport & Mobile Responsive Rules
+## 7. Viewport & Mobile Responsive Rules
 
 - **Mobile Viewport (< 640px / sm):**
   - Full viewport bleed (`w-full h-full min-h-[100dvh] max-h-[100dvh]`).

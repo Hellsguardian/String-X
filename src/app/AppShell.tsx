@@ -41,7 +41,12 @@ export const AppShell: React.FC = () => {
     isOnboardingCompleted,
     signInWithGoogle,
     refreshProfile,
+    authError,
+    setAuthErrorNotice,
+    clearAuthError,
   } = useAuth();
+
+  const [reverificationMode, setReverificationMode] = React.useState<'dp' | 'face' | null>(null);
 
   // Post-authentication routing (OAuth redirect or mount session check)
   useEffect(() => {
@@ -50,10 +55,25 @@ export const AppShell: React.FC = () => {
 
     if (isAuthenticated) {
       if (isOnboardingCompleted) {
-        // CASE: Existing user with completed profile in database (onboarding_status = 'completed' AND is_profile_completed = true)
+        // CASE: Existing user with completed profile in database (onboarding_status = 'completed' OR is_profile_completed = true)
+        // If user is currently performing an explicit re-verification action from Home, do not interrupt!
+        if (reverificationMode) return;
+
+        // If user is rejected and not matched, block matching screens (Radar or event questionnaire) and route to Home
+        if (!profileService.canUseMatching(profile) && !profile.matchedWith) {
+          if (screen === AppRoute.SUCCESS || (screen === AppRoute.ONBOARDING && onboardingStep >= 9)) {
+            navigateTo(AppRoute.HOME);
+            return;
+          }
+        }
+
         // Directly open Page 12 (AppRoute.HOME) and bypass core onboarding (steps 0 to 8)
-        // Allow navigation into Navratri event onboarding flow (onboardingStep >= 9)
-        if (screen === AppRoute.LANDING || screen === AppRoute.PHONE_SIGNUP || (screen === AppRoute.ONBOARDING && onboardingStep < 9)) {
+        // Allow navigation into Navratri event onboarding flow (onboardingStep >= 9) for eligible users
+        if (
+          screen === AppRoute.LANDING ||
+          screen === AppRoute.PHONE_SIGNUP ||
+          (screen === AppRoute.ONBOARDING && onboardingStep < 9)
+        ) {
           navigateTo(AppRoute.HOME);
         }
       } else if (screen === AppRoute.LANDING) {
@@ -63,14 +83,48 @@ export const AppShell: React.FC = () => {
         navigateTo(AppRoute.ONBOARDING, resumeStep);
       }
     }
-  }, [loading, profileLoading, isAuthenticated, isOnboardingCompleted, screen, onboardingStep, profile.onboardingStep, navigateTo, setOnboardingStep]);
+  }, [
+    loading,
+    profileLoading,
+    isAuthenticated,
+    isOnboardingCompleted,
+    reverificationMode,
+    screen,
+    onboardingStep,
+    profile.onboardingStep,
+    navigateTo,
+    setOnboardingStep,
+  ]);
 
-  // Clean URL hash fragments (e.g. Supabase #access_token=...) after OAuth callback
+  // Detect OAuth callback rejection or clean URL hash fragments
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token')) {
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+
+      const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.substring(1) : '');
+      const searchParams = new URLSearchParams(search);
+
+      const error = hashParams.get('error') || searchParams.get('error');
+      const errorDesc = hashParams.get('error_description') || searchParams.get('error_description');
+
+      if (error || errorDesc) {
+        console.warn('[AppShell] OAuth callback rejection detected:', error, errorDesc);
+        window.history.replaceState(null, '', window.location.pathname);
+        setAuthErrorNotice({
+          title: 'Parul University Account Required',
+          message:
+            'StringX is currently available only to Parul University students and approved developer accounts. Please sign in with your Parul University Google account.',
+        });
+        navigateTo(AppRoute.LANDING);
+        return;
+      }
+
+      if (hash && hash.includes('access_token')) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
     }
-  }, []);
+  }, [setAuthErrorNotice, navigateTo]);
 
   const handleQuickFill = () => {
     const quickFillData = {
@@ -136,6 +190,8 @@ export const AppShell: React.FC = () => {
                   await signInWithGoogle();
                 }}
                 onViewCountdown={() => navigateTo(AppRoute.COUNTDOWN)}
+                authError={authError}
+                onClearAuthError={clearAuthError}
               />
             )}
 
@@ -169,7 +225,13 @@ export const AppShell: React.FC = () => {
                   if (!targetUserId) {
                     console.error('[AppShell] Cannot persist event registration: user is not authenticated.');
                     alert('Please sign in to register for Navratri.');
-                    navigateTo(AppRoute.PHONE_SIGNUP);
+                    navigateTo(AppRoute.LANDING);
+                    return;
+                  }
+
+                  if (!profileService.canUseMatching(profile)) {
+                    alert('Your verification needs attention before you can join matching.');
+                    navigateTo(AppRoute.HOME);
                     return;
                   }
 
@@ -187,12 +249,61 @@ export const AppShell: React.FC = () => {
                   await refreshProfile();
                   navigateTo(AppRoute.SUCCESS);
                 }}
-                onBackToLanding={() => navigateTo(AppRoute.PHONE_SIGNUP)}
+                onBackToLanding={() => {
+                  if (typeof window !== 'undefined' && window.history.length > 1 && (window.history.state as any)?.screen === AppRoute.ONBOARDING) {
+                    window.history.back();
+                  } else {
+                    navigateTo(AppRoute.LANDING, 0, true);
+                  }
+                }}
+                reverificationMode={reverificationMode}
+                onReverificationDpComplete={async () => {
+                  setReverificationMode(null);
+                  await refreshProfile();
+                  navigateTo(AppRoute.HOME);
+                }}
                 onFaceVerifiedComplete={async () => {
-                  await completeOnboarding();
-                  showVerifiedTransition();
+                  try {
+                    const targetUserId = user?.id || profile.id;
+                    if (!targetUserId) {
+                      alert('You must be signed in to complete verification.');
+                      return;
+                    }
+
+                    // 1. If face photo is still a data URL, call submit_face_verification RPC first
+                    if (profile.faceVerificationPhoto && profile.faceVerificationPhoto.startsWith('data:')) {
+                      const faceRes = await profileService.submitFaceVerification(
+                        targetUserId,
+                        profile.faceVerificationPhoto,
+                        profile.faceCoordinates
+                      );
+                      if (faceRes.error) {
+                        alert(`Face verification failed: ${faceRes.error.message || 'Please enable GPS location and retake your selfie.'}`);
+                        return;
+                      }
+                    }
+
+                    // 2. Authoritative onboarding completion via RPC
+                    const res = await completeOnboarding();
+                    if (!res.success) {
+                      alert(`Could not complete onboarding: ${res.error || 'Verification check failed. Please try again.'}`);
+                      return;
+                    }
+
+                    // 3. Handle successful completion
+                    if (reverificationMode === 'face') {
+                      setReverificationMode(null);
+                      await refreshProfile();
+                      navigateTo(AppRoute.HOME);
+                    } else {
+                      showVerifiedTransition();
+                    }
+                  } catch (err: any) {
+                    alert(`Verification error: ${err.message || 'Something went wrong. Please try again.'}`);
+                  }
                 }}
                 onBackToHome={() => {
+                  setReverificationMode(null);
                   navigateTo(AppRoute.HOME);
                 }}
               />
@@ -201,44 +312,59 @@ export const AppShell: React.FC = () => {
             {/* Screen 12: STRING-X Home & Events Feed */}
             {screen === AppRoute.HOME && (
               <HomePage
+                onReverifyFace={() => {
+                  setReverificationMode('face');
+                  setOnboardingStep(8);
+                  navigateTo(AppRoute.ONBOARDING, 8);
+                }}
+                onUpdatePhoto={() => {
+                  setReverificationMode('dp');
+                  setOnboardingStep(3);
+                  navigateTo(AppRoute.ONBOARDING, 3);
+                }}
+                onOpenCountdown={() => navigateTo(AppRoute.COUNTDOWN)}
                 onSelectNavratri={async () => {
                   const targetUserId = user?.id || profile.id;
 
-                  // 1. If in-memory profile has a confirmed match already, go directly to Countdown
-                  if (profile.matchedWith) {
-                    navigateTo(AppRoute.COUNTDOWN);
+                  // 1. Check verification / matching eligibility restriction
+                  if (!profileService.canUseMatching(profile)) {
+                    if (profile.verificationFace === 'rejected' && profile.verificationDp !== 'rejected') {
+                      setReverificationMode('face');
+                      setOnboardingStep(8);
+                      navigateTo(AppRoute.ONBOARDING, 8);
+                    } else {
+                      setReverificationMode('dp');
+                      setOnboardingStep(3);
+                      navigateTo(AppRoute.ONBOARDING, 3);
+                    }
                     return;
                   }
 
-                  // 2. If questionnaire is completed in-memory and not matched:
-                  // Directly navigate to Radar (SubmissionSuccessScreen).
-                  // Radar screen already performs immediate active-match checking & real-time polling on mount,
-                  // removing the need to block Home navigation on redundant match queries.
-                  if (profileService.isNavratriCompleted(profile)) {
-                    navigateTo(AppRoute.SUCCESS);
+                  // 2. Unauthenticated user: navigate to Step 9 questionnaire
+                  if (!targetUserId) {
+                    setOnboardingStep(9);
+                    navigateTo(AppRoute.ONBOARDING, 9);
                     return;
                   }
 
-                  // 3. If in-memory profile does not show completed questionnaire (e.g. after fresh reload),
-                  // verify against database:
-                  if (targetUserId) {
-                    const regRes = await eventService.getEventRegistration('navratri', targetUserId);
-                    if (regRes.error) {
-                      alert(`Could not verify registration: ${regRes.error.message || 'Please check your connection and try again.'}`);
-                      return;
-                    }
-
-                    if (regRes.data?.isCompleted) {
-                      if (regRes.data.matchedWith) {
-                        navigateTo(AppRoute.COUNTDOWN);
-                      } else {
-                        navigateTo(AppRoute.SUCCESS);
-                      }
-                      return;
-                    }
+                  // 3. Query authoritative database-backed registration state
+                  const regRes = await eventService.getEventRegistration('navratri', targetUserId);
+                  if (regRes.error) {
+                    alert(`Could not verify registration: ${regRes.error.message || 'Please check your connection and try again.'}`);
+                    return;
                   }
 
-                  // 4. Fresh / unregistered user: start questionnaire at Step 9
+                  // 4. Evaluate database registration result
+                  if (regRes.data?.isCompleted) {
+                    if (regRes.data.matchedWith) {
+                      navigateTo(AppRoute.COUNTDOWN);
+                    } else {
+                      navigateTo(AppRoute.SUCCESS);
+                    }
+                    return;
+                  }
+
+                  // 5. Unregistered / incomplete questionnaire: start at Step 9
                   setOnboardingStep(9);
                   navigateTo(AppRoute.ONBOARDING, 9);
                 }}

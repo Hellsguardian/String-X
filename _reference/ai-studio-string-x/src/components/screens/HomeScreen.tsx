@@ -1,12 +1,14 @@
-import React from 'react';
-import { motion } from 'motion/react';
-import { ArrowRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ArrowRight, Bell } from 'lucide-react';
 import { UserProfile } from '../../types';
+import { NotificationsPopover } from '../ui/NotificationsPopover';
 
 interface HomeScreenProps {
   profile: UserProfile;
   onSelectNavratri: () => void;
   onOpenProfile: () => void;
+  onOpenCountdown?: () => void;
 }
 
 /**
@@ -117,7 +119,30 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   profile,
   onSelectNavratri,
   onOpenProfile,
+  onOpenCountdown,
 }) => {
+  const [hasUnreadNotification, setHasUnreadNotification] = useState(true);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
+  const handleNotificationClick = () => {
+    setIsNotificationsOpen((prev) => !prev);
+    setHasUnreadNotification(false);
+  };
+
+  const handleNotificationAction = (actionType: 'string' | 'profile' | 'pass' | 'general') => {
+    if (actionType === 'string') {
+      if (onOpenCountdown) {
+        onOpenCountdown();
+      } else {
+        onSelectNavratri();
+      }
+    } else if (actionType === 'profile') {
+      onOpenProfile();
+    } else if (actionType === 'pass') {
+      onSelectNavratri();
+    }
+  };
+
   // Extract first name for display
   const firstName = profile.fullName
     ? profile.fullName.trim().split(' ')[0]
@@ -128,28 +153,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   return (
     <div className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-start bg-[#E3E0F5] text-[#251436] select-none overflow-hidden relative font-['Plus_Jakarta_Sans',sans-serif]">
       {/* ================================================================== */}
-      {/* 1. TOP APP BAR (Centrally Anchored STRING X Logo, Avatar on Right)   */}
+      {/* 1. TOP APP BAR (Centrally Anchored STRING X, Bell & Avatar on Right) */}
       {/* ================================================================== */}
-      <header className="shrink-0 relative flex items-center justify-between px-5 sm:px-6 pt-[max(14px,env(safe-area-inset-top,0px))] pb-3 z-20">
-        {/* Left Spacer to perfectly balance the right avatar */}
-        <div className="w-9 h-9 shrink-0" aria-hidden="true" />
+      <header className="shrink-0 relative flex items-center justify-between px-5 sm:px-6 pt-[max(14px,env(safe-area-inset-top,0px))] pb-2.5 z-20">
+        {/* Left balance spacer matching right controls width */}
+        <div className="w-[84px] shrink-0" aria-hidden="true" />
 
-        {/* CENTER: Strong STRING X Wordmark */}
-        <div className="flex items-center gap-1.5 select-none">
-          <div className="flex items-center tracking-tight text-[22px] sm:text-[24px] font-black text-[#251436]">
+        {/* CENTER: Refined STRING X Branding */}
+        <div className="flex-1 flex justify-center items-center">
+          <div className="flex items-center tracking-tight text-[21px] sm:text-[23px] font-black text-[#251436] select-none">
             <span>STRING</span>
             <span className="mx-1" />
             <span className="text-[#F02A8A] relative">
               X
+              {/* Signature curved string accent under X */}
               <svg
-                className="absolute -bottom-1 left-0 w-full h-1.5 overflow-visible"
+                className="absolute -bottom-1 left-0 w-full h-1.5 overflow-visible pointer-events-none"
                 viewBox="0 0 18 5"
                 fill="none"
               >
                 <path
                   d="M1 1C5 4 13 4 17 1"
                   stroke="#FFC928"
-                  strokeWidth="1.8"
+                  strokeWidth="2"
                   strokeLinecap="round"
                 />
               </svg>
@@ -157,51 +183,86 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </div>
 
-        {/* Right: Circular Profile Avatar with Active Dot */}
-        <button
-          type="button"
-          onClick={onOpenProfile}
-          aria-label="View profile and settings"
-          className="relative w-9 h-9 rounded-full border border-[#251436]/15 bg-white flex items-center justify-center p-0.5 ring-2 ring-white/70 hover:ring-[#894EFF]/30 active:scale-95 transition-all cursor-pointer shrink-0 shadow-2xs"
-        >
-          <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-tr from-[#894EFF] to-[#B085FF] flex items-center justify-center text-white font-black text-xs">
-            {avatarPhoto ? (
-              <img
-                src={avatarPhoto}
-                alt={profile.fullName || 'User avatar'}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span>{firstName.charAt(0) || 'U'}</span>
+        {/* RIGHT: Unified Action Controls (Notification Bell & Profile Avatar) */}
+        <div className="w-[84px] shrink-0 flex items-center justify-end gap-2">
+          {/* Notification Bell Icon Button */}
+          <motion.button
+            type="button"
+            onClick={handleNotificationClick}
+            whileTap={{ scale: 0.9 }}
+            aria-label="Notifications"
+            className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full border shadow-2xs flex items-center justify-center transition-all cursor-pointer ${
+              isNotificationsOpen
+                ? 'bg-[#251436] text-white border-[#894EFF]/50 shadow-[0_0_12px_rgba(137,78,255,0.3)]'
+                : 'bg-white/90 text-[#251436] border-[#251436]/12 hover:text-[#894EFF] hover:border-[#894EFF]/30 hover:bg-white'
+            }`}
+          >
+            <Bell size={18} strokeWidth={2.2} />
+            {/* Subtle Pink Notification Indicator Badge */}
+            {hasUnreadNotification && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#F02A8A] ring-2 ring-white" />
             )}
-          </div>
-          {/* Green online/active indicator */}
-          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#10B981] border-2 border-white shadow-2xs" />
-        </button>
+          </motion.button>
+
+          {/* Profile Avatar Button */}
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            aria-label="View profile and settings"
+            className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-[#251436]/12 bg-white/90 shadow-2xs flex items-center justify-center p-0.5 hover:border-[#894EFF]/35 hover:ring-2 hover:ring-[#894EFF]/15 active:scale-95 transition-all cursor-pointer"
+          >
+            <div className="w-full h-full rounded-full overflow-hidden bg-gradient-to-tr from-[#894EFF] to-[#B085FF] flex items-center justify-center text-white font-black text-xs">
+              {avatarPhoto ? (
+                <img
+                  src={avatarPhoto}
+                  alt={profile.fullName || 'User avatar'}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>{firstName.charAt(0) || 'U'}</span>
+              )}
+            </div>
+            {/* Green active status indicator */}
+            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#10B981] border-2 border-white shadow-2xs" />
+          </button>
+        </div>
       </header>
+
+      {/* Floating Notifications Popover */}
+      <NotificationsPopover
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        onSelectAction={handleNotificationAction}
+      />
 
       {/* Subtle Hairline Divider Underneath App Bar */}
       <div className="w-full px-5 sm:px-6 shrink-0">
-        <div className="w-full h-[1px] bg-[#251436]/8" />
+        <div className="w-full h-px bg-[#251436]/6" />
       </div>
 
       {/* ================================================================== */}
       {/* 2. MAIN BODY (Spacious, Minimal, Direct Event Presentation)         */}
       {/* ================================================================== */}
-      <main className="w-full px-5 sm:px-6 pt-5 pb-4 flex-1 flex flex-col justify-start overflow-hidden">
-        {/* 1. PLAYFUL YELLOW EVENT TAG */}
+      <main className="w-full px-5 sm:px-6 pt-3.5 sm:pt-4 pb-4 flex-1 flex flex-col justify-start overflow-hidden">
+        {/* 1. REFINED EVENT CATEGORY PILL */}
         <div className="mb-2 shrink-0">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[#FFC928] text-[#251436] font-black text-[11px] tracking-wider uppercase border border-[#251436]/35 shadow-[1.5px_1.5px_0px_#251436] transform -rotate-1 select-none">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#FFC928] text-[#251436] font-black text-[10.5px] sm:text-[11px] tracking-wider uppercase border border-[#251436]/30 shadow-[1.5px_1.5px_0px_#251436] select-none">
             <span className="w-1.5 h-1.5 rounded-full bg-[#251436]" />
             <span>CAMPUS EVENTS</span>
           </div>
         </div>
 
-        {/* 2. EVENT TITLE */}
+        {/* 2. EDITORIAL EVENT TITLE & CONTEXT */}
         <div className="mb-3.5 shrink-0">
-          <h1 className="text-2xl sm:text-[28px] font-black text-[#251436] tracking-tight leading-tight">
-            NAVRATRI 2026
+          <h1 className="text-[26px] sm:text-[30px] font-black tracking-tight text-[#251436] leading-none flex items-baseline gap-2">
+            <span>NAVRATRI</span>
+            <span className="text-[#894EFF] font-black text-[20px] sm:text-[22px] tracking-tight">
+              2026
+            </span>
           </h1>
+          <p className="text-xs sm:text-[13px] font-semibold text-[#251436]/60 mt-1 tracking-tight">
+            Find your people. Find your vibe.
+          </p>
         </div>
 
         {/* 3. COMPACT NAVRATRI EVENT BANNER */}
@@ -253,7 +314,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 onClick={onSelectNavratri}
                 className="w-full h-[44px] px-4 bg-[#894EFF] hover:bg-[#783cee] active:bg-[#6a2fdb] active:scale-[0.99] text-white font-bold text-xs sm:text-sm rounded-[13px] shadow-[0_2px_12px_rgba(137,78,255,0.4)] transition-all flex items-center justify-center gap-2 cursor-pointer group"
               >
-                <span>Find My Match</span>
+                <span>Connect My String</span>
                 <ArrowRight
                   size={16}
                   strokeWidth={2.5}
