@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delete your StringX account</title>
+  <meta name="description" content="Request deletion of your StringX account and associated personal data." />
+
+  <style>
+    :root {
+      --plum: #251436;
+      --purple: #894EFF;
+      --lavender: #E3E0F5;
+      --yellow: #FFC928;
+      --bg: #f7f4fa;
+      --card: #ffffff;
+      --text: #21182b;
+      --muted: #71677a;
+      --border: #e8e1ed;
+      --danger: #c73557;
+      --danger-bg: #fff1f4;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 85% 5%, rgba(137, 78, 255, .13), transparent 28%),
+        radial-gradient(circle at 5% 40%, rgba(255, 201, 40, .09), transparent 25%),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+    }
+
+    .page {
+      width: min(760px, calc(100% - 32px));
+      margin: auto;
+      padding: 28px 0 56px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 22px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--plum);
+      font-weight: 850;
+      letter-spacing: -.04em;
+      font-size: 1.15rem;
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 11px;
+      color: white;
+      background: var(--purple);
+      font-weight: 900;
+      box-shadow: 0 8px 20px rgba(137, 78, 255, .22);
+    }
+
+    .privacy-link {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: .9rem;
+    }
+
+    .privacy-link:hover { color: var(--purple); }
+
+    .hero {
+      background: var(--plum);
+      color: white;
+      border-radius: 30px;
+      padding: 42px 38px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 22px 60px rgba(37, 20, 54, .16);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 230px;
+      height: 230px;
+      border-radius: 50%;
+      right: -80px;
+      top: -100px;
+      background: rgba(137, 78, 255, .24);
+    }
+
+    .eyebrow {
+      color: var(--yellow);
+      text-transform: uppercase;
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .14em;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 600px;
+      font-size: clamp(2.2rem, 7vw, 3.7rem);
+      line-height: .98;
+      letter-spacing: -.055em;
+    }
+
+    .hero p {
+      max-width: 570px;
+      margin: 18px 0 0;
+      color: #e3e0f5;
+      font-size: 1rem;
+    }
+
+    .content {
+      margin-top: 18px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 28px;
+      box-shadow: 0 10px 30px rgba(37, 20, 54, .05);
+    }
+
+    .card h2 {
+      margin: 0 0 8px;
+      color: var(--plum);
+      font-size: 1.3rem;
+      letter-spacing: -.025em;
+    }
+
+    .muted {
+      margin-top: 0;
+      color: var(--muted);
+      font-size: .94rem;
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 7px;
+      font-size: .85rem;
+      font-weight: 750;
+    }
+
+    input {
+      width: 100%;
+      height: 52px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0 15px;
+      background: #fcfbfd;
+      color: var(--text);
+      font: inherit;
+      outline: none;
+      transition: .18s ease;
+    }
+
+    input:focus {
+      border-color: var(--purple);
+      box-shadow: 0 0 0 4px rgba(137, 78, 255, .11);
+      background: white;
+    }
+
+    .check-row {
+      display: flex;
+      gap: 11px;
+      align-items: flex-start;
+      margin: 5px 0 2px;
+      color: var(--muted);
+      font-size: .88rem;
+    }
+
+    .check-row input {
+      width: 18px;
+      height: 18px;
+      margin-top: 3px;
+      flex: 0 0 auto;
+      accent-color: var(--purple);
+    }
+
+    .delete-btn {
+      width: 100%;
+      height: 54px;
+      border: 0;
+      border-radius: 15px;
+      background: var(--purple);
+      color: white;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+      margin-top: 4px;
+      box-shadow: 0 10px 22px rgba(137, 78, 255, .2);
+      transition: transform .15s ease, opacity .15s ease;
+    }
+
+    .delete-btn:hover { transform: translateY(-1px); }
+    .delete-btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+
+    .warning {
+      display: flex;
+      gap: 12px;
+      background: var(--danger-bg);
+      border: 1px solid #f4ccd6;
+      border-radius: 16px;
+      padding: 16px;
+      color: #733042;
+      font-size: .9rem;
+    }
+
+    .warning-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: #f9d9e1;
+      flex: 0 0 auto;
+    }
+
+    .steps {
+      display: grid;
+      gap: 13px;
+      margin-top: 18px;
+    }
+
+    .step {
+      display: flex;
+      gap: 13px;
+      align-items: flex-start;
+    }
+
+    .step-number {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: rgba(137, 78, 255, .11);
+      color: var(--purple);
+      font-weight: 850;
+      flex: 0 0 auto;
+    }
+
+    .step strong {
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .step span {
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    .status {
+      display: none;
+      margin-top: 14px;
+      border-radius: 14px;
+      padding: 13px 15px;
+      font-size: .9rem;
+    }
+
+    .status.success {
+      display: block;
+      color: #225c42;
+      background: #edf9f3;
+      border: 1px solid #c8ead8;
+    }
+
+    .status.error {
+      display: block;
+      color: #7a3041;
+      background: var(--danger-bg);
+      border: 1px solid #f1cbd5;
+    }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: .82rem;
+      padding-top: 25px;
+    }
+
+    @media (max-width: 600px) {
+      .page { width: min(100% - 20px, 760px); padding-top: 16px; }
+      .hero { padding: 31px 24px; border-radius: 24px; }
+      .card { padding: 22px; border-radius: 19px; }
+      .topbar { padding: 0 3px; }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="page">
+
+    <nav class="topbar">
+      <div class="brand">
+        <span class="brand-mark">S</span>
+        StringX
+      </div>
+      <a class="privacy-link" href="/privacy-policy">Privacy Policy</a>
+    </nav>
+
+    <section class="hero">
+      <div class="eyebrow">Account settings</div>
+      <h1>Delete your StringX account.</h1>
+      <p>
+        You can permanently request deletion of your StringX account and
+        associated personal information without opening the app.
+      </p>
+    </section>
+
+    <div class="content">
+
+      <section class="card">
+        <h2>Request account deletion</h2>
+        <p class="muted">
+          Enter the contact information associated with your StringX account.
+          We may use it to verify that the request belongs to you.
+        </p>
+
+        <form id="deleteForm" class="form-grid">
+          <div>
+            <label for="contact">Phone number or email</label>
+            <input
+              id="contact"
+              name="contact"
+              type="text"
+              autocomplete="email tel"
+              placeholder="Enter your registered phone or email"
+              required
+            />
+          </div>
+
+          <label class="check-row">
+            <input id="confirm" type="checkbox" required />
+            <span>
+              I understand that account deletion is permanent and that my
+              StringX profile and associated personal information may be deleted.
+            </span>
+          </label>
+
+          <button class="delete-btn" type="submit">
+            Request account deletion
+          </button>
+        </form>
+
+        <div id="status" class="status"></div>
+      </section>
+
+      <section class="card">
+        <h2>What happens next?</h2>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <div>
+              <strong>Submit your request</strong>
+              <span>Tell us which StringX account you want to delete.</span>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-number">2</div>
+            <div>
+              <strong>We verify the request</strong>
+              <span>Verification helps prevent someone else from deleting your account.</span>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-number">3</div>
+            <div>
+              <strong>Your account is deleted</strong>
+              <span>Eligible personal information is removed or anonymized according to our retention policy.</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="warning">
+          <div class="warning-icon">!</div>
+          <div>
+            <strong>Account deletion is permanent.</strong><br />
+            Once processed, your profile, photos, preferences and other
+            associated information may no longer be recoverable. Some limited
+            information may be retained where required for legal, security,
+            fraud-prevention or dispute-resolution purposes.
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Can't access your account?</h2>
+        <p class="muted">
+          If you cannot access the phone number or email associated with your
+          account, contact StringX support so we can review your request.
+        </p>
+
+        <!-- Replace this address with your real support/privacy email. -->
+        <a href="mailto:YOUR-PRIVACY-EMAIL@example.com">
+          YOUR-PRIVACY-EMAIL@example.com
+        </a>
+      </section>
+
+    </div>
+
+    <footer>
+      © 2026 StringX · Account Deletion
+    </footer>
+  </main>
+
+  <script>
+    /*
+      IMPORTANT:
+      This page is the user-facing UI only.
+
+      Connect the form to your real deletion backend before publishing.
+      Do NOT put Supabase service-role keys in this HTML/JavaScript.
+
+      Example:
+      const response = await fetch("/api/delete-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contact })
+      });
+    */
+
+    const form = document.getElementById("deleteForm");
+    const contact = document.getElementById("contact");
+    const status = document.getElementById("status");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const value = contact.value.trim();
+
+      if (!value) return;
+
+      /*
+        TEMPORARY UI BEHAVIOUR.
+        Replace this section with your real deletion-request API.
+      */
+      status.className = "status success";
+      status.textContent =
+        "Your deletion request has been recorded by this page. Connect this form to your production deletion backend before publishing.";
+
+      form.querySelector("button").disabled = true;
+    });
+  </script>
+</body>
+</html>

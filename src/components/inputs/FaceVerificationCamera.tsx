@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Camera, RefreshCw, Maximize2, Minimize2, Lock, AlertCircle } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Camera as CapCamera } from '@capacitor/camera';
 import {
   unpackCascade,
   runCascade,
@@ -457,6 +459,23 @@ export const FaceVerificationCamera: React.FC<FaceVerificationCameraProps> = ({
     stopCameraStream();
 
     try {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const perm = await CapCamera.checkPermissions();
+          if (perm.camera !== 'granted') {
+            const req = await CapCamera.requestPermissions({ permissions: ['camera'] });
+            if (req.camera !== 'granted') {
+              throw new Error('Camera access was denied. Please allow camera access in app settings.');
+            }
+          }
+        } catch (nativeCamErr: any) {
+          console.warn('[FaceVerificationCamera] Native camera permission notice:', nativeCamErr);
+          if (nativeCamErr?.message?.toLowerCase().includes('denied') || nativeCamErr?.message?.toLowerCase().includes('permission')) {
+            throw nativeCamErr;
+          }
+        }
+      }
+
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Camera API is not supported on this browser or device.');
       }

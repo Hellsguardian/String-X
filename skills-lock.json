@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "aso-appstore-screenshots": {
+      "source": "adamlyttleapps/claude-skill-aso-appstore-screenshots",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "8a5e827c4969741b364d416ac1e85e6a7ad828c05a12a69d776ec33b811686c0"
+    },
     "supabase": {
       "source": "supabase/agent-skills",
       "sourceType": "github",
