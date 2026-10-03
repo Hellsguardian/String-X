@@ -314,7 +314,12 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
               </div>
 
               {/* Sheet Inner Content */}
-              <div className="px-6 sm:px-8 pt-2 pb-7 sm:pb-8 flex flex-col relative z-10">
+              <div
+                className="px-6 sm:px-8 pt-2 pb-7 sm:pb-8 flex flex-col relative z-10"
+                style={{
+                  paddingBottom: 'max(28px, env(safe-area-inset-bottom, 28px))',
+                }}
+              >
                 {/* ✦ / Connection visual element (Subtle floating animated motif) */}
                 <div className="flex justify-center mb-2.5">
                   <motion.div

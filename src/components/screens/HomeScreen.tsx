@@ -215,7 +215,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {/* ================================================================== */}
       {/* 1. TOP APP BAR (Centrally Anchored STRING X, Bell & Avatar on Right) */}
       {/* ================================================================== */}
-      <header className="shrink-0 relative flex items-center justify-between px-5 sm:px-6 pt-[max(14px,env(safe-area-inset-top,0px))] pb-2.5 z-20">
+      <header
+        className="shrink-0 relative flex items-center justify-between px-5 sm:px-6 pb-2.5 z-20"
+        style={{ paddingTop: 'max(14px, env(safe-area-inset-top, 14px))' }}
+      >
         {/* Left balance spacer matching right controls width */}
         <div className="w-[84px] shrink-0" aria-hidden="true" />
 
@@ -303,7 +306,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {/* ================================================================== */}
       {/* 2. MAIN BODY (Spacious, Minimal, Direct Event Presentation)         */}
       {/* ================================================================== */}
-      <main className="w-full px-5 sm:px-6 pt-3.5 sm:pt-4 pb-4 flex-1 flex flex-col justify-start overflow-y-auto no-scrollbar">
+      <main
+        className="w-full px-5 sm:px-6 pt-3.5 sm:pt-4 pb-4 flex-1 flex flex-col justify-start overflow-y-auto no-scrollbar"
+        style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))' }}
+      >
         {/* Verification Status Banner if Rejected */}
         {profile.verificationStatus === 'rejected' && (
           <motion.div

@@ -604,7 +604,7 @@ export const FaceVerificationCamera: React.FC<FaceVerificationCameraProps> = ({
         className={`relative w-full overflow-hidden transition-all duration-300 ${
           isFullscreen
             ? 'fixed inset-0 z-50 rounded-none border-0 shadow-none bg-black flex items-center justify-center'
-            : 'max-w-[270px] sm:max-w-[290px] aspect-[3/4] max-h-[min(385px,50vh)] rounded-[28px] sm:rounded-[32px] border-3 border-[#251436] bg-[#160C24] shadow-[4px_4px_0px_#251436] flex items-center justify-center'
+            : 'max-w-[270px] sm:max-w-[290px] aspect-[3/4] max-h-[min(385px,50dvh)] rounded-[28px] sm:rounded-[32px] border-3 border-[#251436] bg-[#160C24] shadow-[4px_4px_0px_#251436] flex items-center justify-center'
         }`}
       >
         {/* Shutter flash effect */}

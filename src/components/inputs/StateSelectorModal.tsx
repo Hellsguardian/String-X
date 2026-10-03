@@ -87,7 +87,7 @@ export const StateSelector: React.FC<StateSelectorModalProps> = ({ value, onChan
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: '100%', opacity: 0 }}
               transition={{ type: "spring", stiffness: 350, damping: 30 }}
-              className="w-full max-w-md bg-[#E3E0F5] border-t-4 sm:border-4 border-[#251436] rounded-t-3xl sm:rounded-3xl shadow-2xl p-5 sm:p-6 max-h-[85vh] flex flex-col"
+              className="w-full max-w-md bg-[#E3E0F5] border-t-4 sm:border-4 border-[#251436] rounded-t-3xl sm:rounded-3xl shadow-2xl p-5 sm:p-6 max-h-[min(85dvh,600px)] flex flex-col"
             >
               {/* Header */}
               <div className="flex items-center justify-between mb-4">

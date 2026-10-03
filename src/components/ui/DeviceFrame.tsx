@@ -1,5 +1,6 @@
 import React from 'react';
 import { PlayfulBadge } from '../illustrations/GarbaIllustrations';
+import { useDeviceEnvironment } from '../../utils/platform';
 
 interface DeviceFrameProps {
   children: React.ReactNode;
@@ -8,8 +9,56 @@ interface DeviceFrameProps {
 }
 
 export const DeviceFrame: React.FC<DeviceFrameProps> = ({ children }) => {
+  const env = useDeviceEnvironment();
+  const isNative = env === 'native-android';
+  const isMobileBrowser = env === 'mobile-browser';
+
+  // 1. NATIVE ANDROID APPLICATION (Capacitor)
+  // Preserves existing native layout untouched: fills 100% of native webview container
+  if (isNative) {
+    return (
+      <div className="w-full h-full min-h-full max-h-full bg-[#E3E0F5] flex flex-col relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+        <main className="relative w-full h-full flex-1 min-h-0 flex flex-col bg-[#E3E0F5] overflow-hidden">
+          <div className="flex-1 min-h-0 flex flex-col relative overflow-hidden w-full h-full">
+            {children}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // 2. MOBILE BROWSER (iPhone Safari, iPhone Chrome, Android Chrome, Android mobile browsers)
+  // Uses 100dvh dynamic viewport architecture to prevent content from hiding under browser navigation bars
+  if (isMobileBrowser) {
+    return (
+      <div
+        className="w-full bg-[#E3E0F5] flex flex-col relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif] stringx-mobile-browser-viewport"
+        style={{
+          height: '100dvh',
+          minHeight: '100dvh',
+          maxHeight: '100dvh',
+        }}
+      >
+        <main
+          className="relative w-full h-full flex-1 min-h-0 flex flex-col bg-[#E3E0F5] border-0 rounded-none shadow-none overflow-hidden"
+          style={{
+            height: '100dvh',
+            maxHeight: '100dvh',
+          }}
+        >
+          {/* Content Container (fills available dynamic viewport height with zero unwanted scrollbars) */}
+          <div className="flex-1 min-h-0 flex flex-col relative overflow-hidden w-full h-full">
+            {children}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // 3. DESKTOP & TABLET BROWSERS (width >= 640px)
+  // Preserves existing centered phone mockup frame (844px height, borders, shadow, stickers)
   return (
-    <div className="w-full h-full min-h-[100vh] min-h-[100dvh] max-h-[100dvh] bg-[#E3E0F5] flex flex-col items-center justify-center relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+    <div className="w-full h-full min-h-screen bg-[#E3E0F5] flex flex-col items-center justify-center relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
       {/* Editorial Decorative Elements on Desktop Canvas (Large Desktop Only) */}
       <div className="hidden xl:block absolute inset-0 pointer-events-none select-none overflow-hidden">
         {/* Top left bold statement */}
@@ -55,18 +104,12 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({ children }) => {
       </div>
 
       {/* Main Preview Container */}
-      <div className="relative flex items-center justify-center w-full h-full min-h-[100dvh] max-h-[100dvh] sm:min-h-0 sm:h-auto sm:max-h-[min(880px,calc(100dvh-24px))] sm:px-4">
+      <div className="relative flex items-center justify-center w-full h-full sm:min-h-0 sm:h-auto sm:max-h-[min(880px,calc(100vh-24px))] sm:px-4">
         {/*
           The Mobile Application Viewport Container:
-          - On mobile (< sm): 100vw, 100dvh, zero borders, zero frame decorations, zero margins.
           - On desktop (>= sm): Centered phone frame preview (max-w-[400px], h-[844px] or constrained by viewport).
         */}
-        <main
-          className="relative w-full h-full min-h-[100dvh] max-h-[100dvh] sm:min-h-0 sm:h-[844px] sm:max-h-[min(880px,calc(100dvh-24px))] sm:max-w-[400px] flex flex-col bg-[#E3E0F5] border-0 rounded-none shadow-none sm:border-4 sm:border-[#251436] sm:rounded-[44px] sm:shadow-[10px_10px_0px_#251436] overflow-hidden"
-          style={{
-            height: '100dvh',
-          }}
-        >
+        <main className="relative w-full h-full sm:h-[844px] sm:max-h-[min(880px,calc(100vh-24px))] sm:max-w-[400px] flex flex-col bg-[#E3E0F5] sm:border-4 sm:border-[#251436] sm:rounded-[44px] sm:shadow-[10px_10px_0px_#251436] overflow-hidden">
           {/* Subtle Phone Notch / Speaker bar on desktop frame preview only */}
           <div className="hidden sm:flex justify-center pt-2.5 pb-1 select-none pointer-events-none shrink-0">
             <div className="w-24 h-4 bg-[#251436] rounded-full flex items-center justify-end px-2">
@@ -83,3 +126,4 @@ export const DeviceFrame: React.FC<DeviceFrameProps> = ({ children }) => {
     </div>
   );
 };
+

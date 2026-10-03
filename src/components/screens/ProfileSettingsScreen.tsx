@@ -66,7 +66,10 @@ export const ProfileSettingsScreen: React.FC<ProfileSettingsScreenProps> = ({
       {/* ================================================================== */}
       {/* 1. TOP APP HEADER                                                  */}
       {/* ================================================================== */}
-      <header className="shrink-0 px-5 sm:px-6 pt-[max(14px,env(safe-area-inset-top,0px))] pb-2.5 z-20">
+      <header
+        className="shrink-0 px-5 sm:px-6 pb-2.5 z-20"
+        style={{ paddingTop: 'max(14px, env(safe-area-inset-top, 14px))' }}
+      >
         <div className="flex items-center justify-between">
           {/* LEFT: Back Navigation + STRING-X Brand Logo */}
           <div className="flex items-center gap-2">
@@ -119,7 +122,10 @@ export const ProfileSettingsScreen: React.FC<ProfileSettingsScreenProps> = ({
       {/* ================================================================== */}
       {/* 2. MAIN SCROLLABLE CONTENT BODY                                    */}
       {/* ================================================================== */}
-      <main className="flex-1 min-h-0 px-5 sm:px-6 py-1 overflow-y-auto no-scrollbar space-y-4">
+      <main
+        className="flex-1 min-h-0 px-5 sm:px-6 py-1 overflow-y-auto no-scrollbar space-y-4"
+        style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))' }}
+      >
         
         {/* PROFILE HERO (Spacious, Centered, Direct on Canvas) */}
         <section className="flex flex-col items-center text-center pt-1 pb-1">

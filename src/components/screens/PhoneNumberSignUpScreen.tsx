@@ -316,7 +316,12 @@ export const PhoneNumberSignUpScreen: React.FC<PhoneNumberSignUpScreenProps> = (
       </div>
 
       {/* Anchored Bottom Navigation CTA */}
-      <div className="shrink-0 px-6 pt-2 pb-3 sm:pb-4 pb-[max(12px,env(safe-area-inset-bottom,0px))] bg-[#E3E0F5]">
+      <div
+        className="shrink-0 px-6 pt-2 pb-3 sm:pb-4 bg-[#E3E0F5]"
+        style={{
+          paddingBottom: 'max(14px, env(safe-area-inset-bottom, 14px))',
+        }}
+      >
         <PrimaryButton
           label={isSendingOtp ? "Sending code..." : "Send OTP →"}
           onClick={handleSendOtp}
@@ -501,7 +506,12 @@ export const PhoneNumberSignUpScreen: React.FC<PhoneNumberSignUpScreenProps> = (
                 </div>
 
                 {/* 6. Primary Action Button */}
-                <div className="pt-2 pb-6">
+                <div
+                  className="pt-2 pb-6"
+                  style={{
+                    paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))',
+                  }}
+                >
                   <motion.div
                     animate={isOtpComplete && !isVerifying && !isVerifiedSuccess ? { scale: [1, 1.015, 1] } : {}}
                     transition={{ duration: 0.3 }}

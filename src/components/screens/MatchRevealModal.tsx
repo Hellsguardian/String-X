@@ -43,7 +43,7 @@ export const MatchRevealModal: React.FC<MatchRevealModalProps> = ({
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.85, opacity: 0, y: 20 }}
         transition={{ type: "spring", stiffness: 350, damping: 25 }}
-        className="w-full max-w-sm bg-[#E3E0F5] border-4 border-[#251436] rounded-[36px] shadow-[8px_8px_0px_#251436] p-5 max-h-[90vh] flex flex-col overflow-y-auto"
+        className="w-full max-w-sm bg-[#E3E0F5] border-4 border-[#251436] rounded-[36px] shadow-[8px_8px_0px_#251436] p-5 max-h-[min(90dvh,600px)] flex flex-col overflow-y-auto"
       >
         {/* Top Header */}
         <div className="flex items-center justify-between mb-3">
