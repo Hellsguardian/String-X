@@ -16,8 +16,12 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
   max = 90,
 }) => {
   const dialRef = useRef<HTMLDivElement>(null);
+  const meterContainerRef = useRef<HTMLDivElement>(null);
+  const [meterSize, setMeterSize] = useState<number | null>(null);
   const [activeButton, setActiveButton] = useState<'plus' | 'minus' | null>(null);
   const [isInteractingDial, setIsInteractingDial] = useState(false);
+  const [isHolding, setIsHolding] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   // References for hold acceleration & dial rotation physics
   const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -42,6 +46,55 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
   useEffect(() => {
     currentValueRef.current = value;
   }, [value]);
+
+  // Dynamically calculate optimal meter size based on available container dimensions
+  useEffect(() => {
+    const updateSize = () => {
+      if (!meterContainerRef.current) return;
+      const { clientWidth, clientHeight } = meterContainerRef.current;
+      if (!clientWidth || !clientHeight) return;
+
+      // Available space with safe margins:
+      // Leave at least 20px horizontal clearance and 16px vertical clearance from heading and controls
+      const availableSpace = Math.min(clientWidth - 20, clientHeight - 16);
+
+      // Dynamic responsiveness:
+      // Minimum 168px (for very short screens) up to 268px (iPhone 14, taller devices)
+      const targetSize = Math.max(168, Math.min(Math.floor(availableSpace), 268));
+      setMeterSize(targetSize);
+    };
+
+    updateSize();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && meterContainerRef.current) {
+      resizeObserver = new ResizeObserver(updateSize);
+      resizeObserver.observe(meterContainerRef.current);
+    }
+
+    window.addEventListener('resize', updateSize);
+    return () => {
+      if (resizeObserver) resizeObserver.disconnect();
+      window.removeEventListener('resize', updateSize);
+    };
+  }, []);
+
+  // Safety: Ensure isDragging and isHolding clear if pointerup occurs outside component
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleGlobalPointerUp = () => {
+      isDraggingDial.current = false;
+      setIsDragging(false);
+      setIsHolding(false);
+      stopHold();
+    };
+    window.addEventListener('pointerup', handleGlobalPointerUp);
+    window.addEventListener('pointercancel', handleGlobalPointerUp);
+    return () => {
+      window.removeEventListener('pointerup', handleGlobalPointerUp);
+      window.removeEventListener('pointercancel', handleGlobalPointerUp);
+    };
+  }, [isDragging]);
 
   // Clean up all timers on unmount
   useEffect(() => {
@@ -121,6 +174,7 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
     // 2. Schedule continuous hold acceleration only after 340ms of sustained press
     let holdCount = 0;
     buttonHoldTimeoutRef.current = setTimeout(() => {
+      setIsHolding(true);
       const runTick = () => {
         if (delta > 0 && currentValueRef.current >= max) {
           stopButtonHold();
@@ -156,6 +210,7 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
       buttonHoldTimeoutRef.current = null;
     }
     setActiveButton(null);
+    setIsHolding(false);
   };
 
   const handleButtonPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -180,6 +235,8 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
     }
     stopButtonHold();
     setIsInteractingDial(false);
+    setIsDragging(false);
+    setIsHolding(false);
   };
 
   // Convert kg to lbs for secondary reference
@@ -207,6 +264,7 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
     const dy = e.clientY - centerY;
 
     isDraggingDial.current = true;
+    setIsDragging(true);
     hasMovedDialRef.current = false;
     dialDownPosRef.current = { x: e.clientX, y: e.clientY };
     dialDownTimeRef.current = performance.now();
@@ -225,6 +283,7 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
     holdTimeoutRef.current = setTimeout(() => {
       if (isDraggingDial.current) {
         hasMovedDialRef.current = true; // sustained hold counts as hold, not single tap
+        setIsHolding(true);
         stepWeight(1);
         const runDialHold = () => {
           if (!isDraggingDial.current || currentValueRef.current >= max) {
@@ -258,6 +317,7 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
         clearTimeout(holdTimeoutRef.current);
         holdTimeoutRef.current = null;
       }
+      setIsHolding(false);
     }
 
     // 1. Rotary Angular Dragging (ideal when touching around the dial)
@@ -306,6 +366,8 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
   const handleDialPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDraggingDial.current) return;
     isDraggingDial.current = false;
+    setIsDragging(false);
+    setIsHolding(false);
 
     try {
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -374,16 +436,67 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
   });
 
   return (
-    <div className="w-full flex flex-col items-center select-none">
-      {/* 1. HERO CIRCULAR WEIGHT METER DIAL */}
-      <div className="relative mb-2 sm:mb-3 flex items-center justify-center">
-        {/* Soft interactive glow halo when adjusting or tapping */}
+    <div className="w-full h-full flex-1 flex flex-col justify-between items-center select-none min-h-0">
+      {/* 1. HERO CIRCULAR WEIGHT METER DIAL: Takes all remaining flexible height */}
+      <div
+        ref={meterContainerRef}
+        className="flex-1 min-h-0 w-full flex items-center justify-center relative py-1"
+      >
+        {/* Soft atmospheric ambient glow when holding */}
         <div
-          className={`absolute w-56 h-56 sm:w-64 sm:h-64 rounded-full transition-all duration-200 pointer-events-none ${
-            isInteracting || isTapPulsing
-              ? 'bg-[#894EFF]/25 scale-105 blur-lg opacity-100'
-              : 'bg-transparent scale-100 opacity-0'
+          className={`absolute rounded-full transition-all duration-300 pointer-events-none ${
+            isHolding
+              ? 'opacity-80 scale-110'
+              : isInteracting || isTapPulsing
+              ? 'opacity-45 scale-105'
+              : 'opacity-0 scale-95'
           }`}
+          style={{
+            width: meterSize ? `${meterSize + 28}px` : 'clamp(196px, 34dvh, 296px)',
+            height: meterSize ? `${meterSize + 28}px` : 'clamp(196px, 34dvh, 296px)',
+            background:
+              'radial-gradient(circle, rgba(137,78,255,0.35) 0%, rgba(240,42,138,0.2) 45%, transparent 70%)',
+            filter: 'blur(8px)',
+          }}
+        />
+
+        {/* Dynamic Circular Energy Aura Halo (active during continuous hold) */}
+        <div
+          className={`absolute rounded-full pointer-events-none transition-opacity duration-200 ${
+            isHolding
+              ? 'opacity-100 scale-102'
+              : 'opacity-0 scale-95'
+          }`}
+          style={{
+            width: meterSize ? `${meterSize + 16}px` : 'clamp(184px, 32dvh, 284px)',
+            height: meterSize ? `${meterSize + 16}px` : 'clamp(184px, 32dvh, 284px)',
+            maxWidth: '100%',
+            maxHeight: '100%',
+            maskImage: 'radial-gradient(circle, transparent 66%, black 78%, black 95%, transparent 100%)',
+            WebkitMaskImage: 'radial-gradient(circle, transparent 66%, black 78%, black 95%, transparent 100%)',
+            filter: 'blur(3px)',
+          }}
+        >
+          <div
+            className="w-full h-full rounded-full animate-circular-energy"
+            style={{
+              background:
+                'conic-gradient(from 0deg, transparent 0deg, rgba(137,78,255,0.1) 40deg, rgba(137,78,255,0.85) 140deg, rgba(240,42,138,0.95) 210deg, rgba(137,78,255,0.65) 280deg, transparent 340deg, transparent 360deg)',
+            }}
+          />
+        </div>
+
+        {/* Subtle circular pulse on tap */}
+        <div
+          className={`absolute rounded-full pointer-events-none transition-all duration-200 ${
+            isTapPulsing
+              ? 'opacity-60 scale-105 bg-[#894EFF]/20'
+              : 'opacity-0 scale-100 bg-transparent'
+          }`}
+          style={{
+            width: meterSize ? `${meterSize + 8}px` : 'clamp(176px, 31dvh, 276px)',
+            height: meterSize ? `${meterSize + 8}px` : 'clamp(176px, 31dvh, 276px)',
+          }}
         />
 
         {/* 
@@ -400,18 +513,41 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
           onPointerUp={handleDialPointerUp}
           onPointerCancel={handleDialPointerUp}
           onClick={handleDialClick}
-          className={`relative w-52 h-52 sm:w-60 sm:h-60 rounded-full cursor-grab active:cursor-grabbing flex flex-col items-center justify-center border-4 border-[#251436] transition-all duration-150 overflow-hidden select-none touch-none ${
+          className={`relative rounded-full cursor-grab active:cursor-grabbing flex flex-col items-center justify-center border-4 border-[#251436] transition-all duration-150 overflow-hidden select-none touch-none aspect-square ${
             isInteracting || isTapPulsing
               ? 'bg-[#FAF8FE] shadow-[3px_3px_0px_#251436] translate-y-0.5 scale-[0.985]'
               : 'bg-[#FFFFFF] shadow-[6px_6px_0px_#251436] hover:bg-[#FAF9FF] scale-100'
           }`}
           style={{
+            width: meterSize ? `${meterSize}px` : 'clamp(168px, 30.5dvh, 268px)',
+            height: meterSize ? `${meterSize}px` : 'clamp(168px, 30.5dvh, 268px)',
+            maxWidth: 'calc(100% - 16px)',
+            maxHeight: 'calc(100% - 12px)',
             touchAction: 'none',
           }}
           title="Tap to increase +1 kg, or rotate the dial"
         >
           {/* Subtle physical inner shadow vignette */}
           <div className="absolute inset-0 rounded-full pointer-events-none shadow-[inset_0px_3px_8px_rgba(37,20,54,0.08)] z-0" />
+
+          {/* Internal Circular Energy Flow Stream (strictly clipped inside circular meter) */}
+          <div
+            className={`absolute inset-0 rounded-full pointer-events-none transition-opacity duration-200 overflow-hidden z-1 ${
+              isHolding ? 'opacity-100' : 'opacity-0'
+            }`}
+            style={{
+              maskImage: 'radial-gradient(circle, transparent 72%, black 79%, black 98%, transparent 100%)',
+              WebkitMaskImage: 'radial-gradient(circle, transparent 72%, black 79%, black 98%, transparent 100%)',
+            }}
+          >
+            <div
+              className="w-full h-full rounded-full animate-circular-energy"
+              style={{
+                background:
+                  'conic-gradient(from 0deg, transparent 0deg, rgba(137,78,255,0.15) 45deg, rgba(137,78,255,0.75) 150deg, rgba(240,42,138,0.9) 210deg, rgba(137,78,255,0.55) 270deg, transparent 330deg, transparent 360deg)',
+              }}
+            />
+          </div>
 
           {/* SVG Progress Gauge Arc, Ticks & Secondary Ring */}
           <svg
@@ -430,7 +566,7 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
                 strokeWidth={t.width}
                 strokeOpacity={t.opacity}
                 strokeLinecap="round"
-                className="transition-all duration-150"
+                className={isDragging ? 'transition-none' : 'transition-all duration-75'}
               />
             ))}
 
@@ -456,17 +592,18 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
               r={radius}
               fill="transparent"
               stroke={value > 0 ? '#894EFF' : 'transparent'}
-              strokeWidth={isTapPulsing ? 10 : 8.5}
+              strokeWidth={isHolding ? 10 : isTapPulsing ? 10 : 8.5}
               strokeLinecap="round"
               strokeDasharray={`${arcLength} ${circumference}`}
               strokeDashoffset={strokeOffset}
               transform="rotate(135 115 115)"
-              className="transition-all duration-150 ease-out"
+              className={isDragging ? 'transition-none' : 'transition-all duration-75 ease-out'}
               style={{
-                filter:
-                  (isInteracting || isTapPulsing) && value > 0
-                    ? 'drop-shadow(0 0 8px rgba(137,78,255,0.75))'
-                    : 'none',
+                filter: isHolding
+                  ? 'drop-shadow(0 0 10px rgba(137,78,255,0.85))'
+                  : (isInteracting || isTapPulsing) && value > 0
+                  ? 'drop-shadow(0 0 6px rgba(137,78,255,0.6))'
+                  : 'none',
               }}
             />
           </svg>
@@ -476,15 +613,21 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
             style={{
               transform: `rotate(${beadAngle}deg)`,
             }}
-            className="absolute inset-0 pointer-events-none flex justify-center transition-transform duration-100 ease-out z-20"
+            className={`absolute inset-0 pointer-events-none flex justify-center z-20 ${
+              isDragging ? 'transition-none' : 'transition-transform duration-75 ease-out'
+            }`}
           >
             <div
-              className={`w-[18px] h-[18px] rounded-full bg-white border-2.5 border-[#251436] shadow-[0px_2px_4px_rgba(37,20,54,0.25)] -mt-2.5 flex items-center justify-center transition-all duration-150 ${
+              className={`w-[18px] h-[18px] rounded-full bg-white border-2.5 border-[#251436] shadow-[0px_2px_4px_rgba(37,20,54,0.25)] -mt-2.5 flex items-center justify-center ${
+                isDragging ? 'transition-none' : 'transition-all duration-150'
+              } ${
                 isInteracting || isTapPulsing ? 'scale-120 border-[#894EFF]' : 'scale-100'
               }`}
             >
               <div
-                className={`w-2 h-2 rounded-full transition-colors duration-150 ${
+                className={`w-2 h-2 rounded-full ${
+                  isDragging ? 'transition-none' : 'transition-colors duration-150'
+                } ${
                   isInteracting || isTapPulsing ? 'bg-[#F02A8A]' : 'bg-[#894EFF]'
                 }`}
               />
@@ -495,34 +638,40 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
           <div className="absolute top-2 w-3 h-2 bg-[#F02A8A] rounded-b-md border border-[#251436] shadow-[0.5px_0.5px_0px_#251436] z-10 pointer-events-none" />
 
           {/* Raised Center Platter / Plinth with Clear Visual Hierarchy */}
-          <div className="relative w-38 h-38 sm:w-42 sm:h-42 rounded-full bg-white/95 border border-[#251436]/10 shadow-[0_2px_12px_rgba(37,20,54,0.06)] flex flex-col items-center justify-center pointer-events-none z-10 px-2 text-center">
-            {/* Bold Center Weight Number with subtle scale pop */}
-            <div className="relative flex items-center justify-center h-16 sm:h-18">
-              <motion.span
-                key={value}
-                initial={{ scale: 1.05, opacity: 0.9 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 0.16, ease: 'easeOut' }}
-                className="text-6xl sm:text-7xl font-black text-[#251436] tracking-tight leading-none select-none"
-              >
-                {value}
-              </motion.span>
+          <div className="relative w-[76%] h-[76%] rounded-full bg-white/95 border border-[#251436]/10 shadow-[0_2px_12px_rgba(37,20,54,0.06)] flex flex-col items-center justify-center pointer-events-none z-10 px-2 text-center">
+            {/* Bold Center Weight Number with instant sync during dragging */}
+            <div className="relative flex items-center justify-center">
+              {isDragging ? (
+                <span className="text-[clamp(44px,6.2vh,64px)] font-black text-[#251436] tracking-tight leading-none select-none">
+                  {value}
+                </span>
+              ) : (
+                <motion.span
+                  key={value}
+                  initial={{ scale: 1.05, opacity: 0.9 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.14, ease: 'easeOut' }}
+                  className="text-[clamp(44px,6.2vh,64px)] font-black text-[#251436] tracking-tight leading-none select-none"
+                >
+                  {value}
+                </motion.span>
+              )}
             </div>
 
             {/* Refined Warm Yellow KG Pill */}
-            <div className="flex items-center justify-center mt-0.5">
-              <span className="px-3.5 py-0.5 rounded-full text-xs font-black bg-[#FFC928] text-[#251436] border-2 border-[#251436] shadow-[1.5px_1.5px_0px_#251436] tracking-wider uppercase select-none">
+            <div className="flex items-center justify-center mt-1">
+              <span className="px-3.5 py-0.5 rounded-full text-[clamp(10.5px,1.4vh,13px)] font-black bg-[#FFC928] text-[#251436] border-2 border-[#251436] shadow-[1.5px_1.5px_0px_#251436] tracking-wider uppercase select-none">
                 KG
               </span>
             </div>
 
             {/* Secondary Pounds Display */}
             {value === 0 ? (
-              <span className="text-[11px] font-bold text-[#894EFF] mt-1 tracking-tight select-none">
+              <span className="text-[11px] sm:text-[12px] font-bold text-[#894EFF] mt-1 tracking-tight select-none">
                 Tap or rotate to set
               </span>
             ) : (
-              <span className="text-xs font-semibold text-[#251436]/55 mt-1 tracking-tight select-none">
+              <span className="text-[11px] sm:text-xs font-semibold text-[#251436]/55 mt-1 tracking-tight select-none">
                 ({weightLbs} lbs)
               </span>
             )}
@@ -530,53 +679,55 @@ export const WeightDialCircle: React.FC<WeightDialCircleProps> = ({
         </div>
       </div>
 
-      {/* 2. TACTILE ACTION CONTROLS [ − ] and [ + ] */}
-      <div className="flex items-center justify-center gap-5 w-full max-w-[280px]">
-        {/* Decrease Button [ - ] */}
-        <button
-          type="button"
-          id="decrease-weight-btn"
-          disabled={value <= min}
-          onPointerDown={(e) => startButtonHold(-1, 'minus', e)}
-          onPointerUp={handleButtonPointerUp}
-          onPointerLeave={handleButtonPointerUp}
-          onPointerCancel={handleButtonPointerUp}
-          onClick={(e) => e.preventDefault()}
-          className={`w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-white border-3 border-[#251436] flex items-center justify-center text-[#251436] transition-all disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer ${
-            activeButton === 'minus'
-              ? 'translate-y-1 shadow-[1px_1px_0px_#251436] bg-[#EAE5F8]'
-              : 'shadow-[4px_4px_0px_#251436] hover:bg-[#FAF9FF] active:translate-y-1 active:shadow-[1px_1px_0px_#251436]'
-          }`}
-          aria-label="Decrease weight"
-        >
-          <Minus size={22} strokeWidth={3.5} />
-        </button>
+      {/* 2. TACTILE ACTION CONTROLS [ − ] and [ + ]: Anchored toward bottom */}
+      <div className="shrink-0 flex flex-col items-center justify-center w-full pt-1 pb-0.5 weight-controls">
+        <div className="flex items-center justify-center gap-4 sm:gap-5 w-full max-w-[280px]">
+          {/* Decrease Button [ - ] */}
+          <button
+            type="button"
+            id="decrease-weight-btn"
+            disabled={value <= min}
+            onPointerDown={(e) => startButtonHold(-1, 'minus', e)}
+            onPointerUp={handleButtonPointerUp}
+            onPointerLeave={handleButtonPointerUp}
+            onPointerCancel={handleButtonPointerUp}
+            onClick={(e) => e.preventDefault()}
+            className={`w-[clamp(44px,5.6vh,54px)] h-[clamp(44px,5.6vh,54px)] rounded-2xl bg-white border-3 border-[#251436] flex items-center justify-center text-[#251436] transition-all disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer ${
+              activeButton === 'minus'
+                ? 'translate-y-1 shadow-[1px_1px_0px_#251436] bg-[#EAE5F8]'
+                : 'shadow-[4px_4px_0px_#251436] hover:bg-[#FAF9FF] active:translate-y-1 active:shadow-[1px_1px_0px_#251436]'
+            }`}
+            aria-label="Decrease weight"
+          >
+            <Minus size={20} strokeWidth={3.5} />
+          </button>
 
-        {/* Increase Button [ + ] */}
-        <button
-          type="button"
-          id="increase-weight-btn"
-          disabled={value >= max}
-          onPointerDown={(e) => startButtonHold(1, 'plus', e)}
-          onPointerUp={handleButtonPointerUp}
-          onPointerLeave={handleButtonPointerUp}
-          onPointerCancel={handleButtonPointerUp}
-          onClick={(e) => e.preventDefault()}
-          className={`w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-[#894EFF] border-3 border-[#251436] flex items-center justify-center text-white transition-all disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer ${
-            activeButton === 'plus'
-              ? 'translate-y-1 shadow-[1px_1px_0px_#251436] bg-[#7836F0]'
-              : 'shadow-[4px_4px_0px_#251436] hover:bg-[#7D3DF5] active:translate-y-1 active:shadow-[1px_1px_0px_#251436]'
-          }`}
-          aria-label="Increase weight"
-        >
-          <Plus size={22} strokeWidth={3.5} />
-        </button>
+          {/* Increase Button [ + ] */}
+          <button
+            type="button"
+            id="increase-weight-btn"
+            disabled={value >= max}
+            onPointerDown={(e) => startButtonHold(1, 'plus', e)}
+            onPointerUp={handleButtonPointerUp}
+            onPointerLeave={handleButtonPointerUp}
+            onPointerCancel={handleButtonPointerUp}
+            onClick={(e) => e.preventDefault()}
+            className={`w-[clamp(44px,5.6vh,54px)] h-[clamp(44px,5.6vh,54px)] rounded-2xl bg-[#894EFF] border-3 border-[#251436] flex items-center justify-center text-white transition-all disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer ${
+              activeButton === 'plus'
+                ? 'translate-y-1 shadow-[1px_1px_0px_#251436] bg-[#7836F0]'
+                : 'shadow-[4px_4px_0px_#251436] hover:bg-[#7D3DF5] active:translate-y-1 active:shadow-[1px_1px_0px_#251436]'
+            }`}
+            aria-label="Increase weight"
+          >
+            <Plus size={20} strokeWidth={3.5} />
+          </button>
+        </div>
+
+        {/* Simplified, elegant microcopy instruction */}
+        <p className="text-[10.5px] sm:text-xs font-bold text-[#251436]/60 text-center mt-1 select-none tracking-tight">
+          Tap +1 kg • Hold to adjust
+        </p>
       </div>
-
-      {/* Simplified, elegant microcopy instruction */}
-      <p className="text-[11px] sm:text-xs font-bold text-[#251436]/60 text-center mt-2 select-none tracking-tight">
-        Tap +1 kg • Hold to adjust
-      </p>
     </div>
   );
 };

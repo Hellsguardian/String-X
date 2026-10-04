@@ -238,9 +238,9 @@ export const HorizontalHeightPicker: React.FC<HorizontalHeightPickerProps> = ({
   };
 
   return (
-    <div className="w-full flex flex-col items-start select-none">
-      {/* 1. HERO HEIGHT VALUE DISPLAY (Left-aligned) */}
-      <div className="w-full flex items-baseline justify-start gap-2 mb-2 select-none">
+    <div className="w-full flex flex-col items-center select-none">
+      {/* 1. HERO HEIGHT VALUE DISPLAY (Horizontally centered above ruler) */}
+      <div className="w-full flex items-baseline justify-center gap-2 mb-1.5 select-none">
         <motion.span
           key={value}
           initial={{
@@ -254,14 +254,14 @@ export const HorizontalHeightPicker: React.FC<HorizontalHeightPickerProps> = ({
             opacity: 1,
           }}
           transition={{ duration: 0.15, ease: 'easeOut' }}
-          className="text-[44px] sm:text-[48px] font-black text-[#251436] tracking-tight leading-none"
+          className="text-[clamp(36px,5.2dvh,48px)] font-black text-[#251436] tracking-tight leading-none"
         >
           {value}
         </motion.span>
-        <span className="text-2xl font-black text-[#894EFF] leading-none">
+        <span className="text-[clamp(18px,2.6dvh,24px)] font-black text-[#894EFF] leading-none">
           cm
         </span>
-        <span className="text-sm font-bold text-[#251436]/50 ml-1 leading-none">
+        <span className="text-[clamp(11px,1.6dvh,14px)] font-bold text-[#251436]/50 ml-1 leading-none">
           ({feet}'{inches}")
         </span>
       </div>
@@ -274,7 +274,7 @@ export const HorizontalHeightPicker: React.FC<HorizontalHeightPickerProps> = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
-          className={`relative w-full max-w-[340px] sm:max-w-[360px] h-18 sm:h-20 bg-[#FFFFFF] border-3 border-[#251436] rounded-2xl shadow-[4px_4px_0px_#251436] overflow-hidden flex items-center cursor-grab active:cursor-grabbing transition-shadow duration-150 ${
+          className={`relative w-full max-w-[340px] sm:max-w-[360px] h-[clamp(62px,8.5dvh,78px)] bg-[#FFFFFF] border-3 border-[#251436] rounded-2xl shadow-[4px_4px_0px_#251436] overflow-hidden flex items-center cursor-grab active:cursor-grabbing transition-shadow duration-150 ${
             isDragging ? 'shadow-[2px_2px_0px_#251436] bg-[#FAF8FE]' : 'hover:border-[#894EFF]/80'
           }`}
         >

@@ -65,3 +65,19 @@ body {
   -ms-overflow-style: none !important;  /* IE and Edge */
   scrollbar-width: none !important;  /* Firefox */
 }
+
+/* Circular energy flow animation for Page 7 weight meter during hold */
+@keyframes stringx-meter-energy-flow {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-circular-energy {
+  animation: stringx-meter-energy-flow 1.5s linear infinite;
+  will-change: transform;
+}
+

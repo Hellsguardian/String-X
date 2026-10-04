@@ -177,7 +177,9 @@ export const OnboardingFlowContainer: React.FC<OnboardingFlowContainerProps> = (
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -25 }}
             transition={{ duration: 0.22, ease: 'easeInOut' }}
-            className="flex-1 min-h-0 flex flex-col justify-between"
+            className={`flex-1 min-h-0 flex flex-col ${
+              step === 4 ? 'h-full' : 'justify-between'
+            }`}
           >
             {/* Step 0: Name & Gender */}
             {step === 0 && (
