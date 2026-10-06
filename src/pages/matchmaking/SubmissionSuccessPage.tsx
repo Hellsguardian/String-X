@@ -4,14 +4,18 @@ import { SubmissionSuccessScreen } from '../../components/screens/SubmissionSucc
 
 interface SubmissionSuccessPageProps {
   onBack: () => void;
-  onContinueToCountdown: () => void;
+  onContinueToCountdown: (match?: any) => void;
   onEnterMainApp?: () => void;
+  showRegistrationCelebration?: boolean;
+  onCelebrationComplete?: () => void;
 }
 
 export const SubmissionSuccessPage: React.FC<SubmissionSuccessPageProps> = ({
   onBack,
   onContinueToCountdown,
   onEnterMainApp,
+  showRegistrationCelebration,
+  onCelebrationComplete,
 }) => {
   const { profile, user } = useAuth();
 
@@ -23,6 +27,8 @@ export const SubmissionSuccessPage: React.FC<SubmissionSuccessPageProps> = ({
       onBack={onBack}
       onContinueToCountdown={onContinueToCountdown}
       onEnterMainApp={onEnterMainApp}
+      showRegistrationCelebration={showRegistrationCelebration}
+      onCelebrationComplete={onCelebrationComplete}
     />
   );
 };

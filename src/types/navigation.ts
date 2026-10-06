@@ -9,7 +9,9 @@ export type ScreenState =
   | 'home'
   | 'profile'
   | 'success'
-  | 'countdown';
+  | 'countdown'
+  | 'match-reveal'
+  | 'messages';
 
 export enum AppRoute {
   LANDING = 'landing',
@@ -19,6 +21,8 @@ export enum AppRoute {
   PROFILE = 'profile',
   SUCCESS = 'success',
   COUNTDOWN = 'countdown',
+  MATCH_REVEAL = 'match-reveal',
+  MESSAGES = 'messages',
 }
 
 /**

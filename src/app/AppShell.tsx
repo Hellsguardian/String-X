@@ -10,6 +10,8 @@ import { HomePage } from '../pages/home/HomePage';
 import { ProfileSettingsPage } from '../pages/profile/ProfileSettingsPage';
 import { SubmissionSuccessPage } from '../pages/matchmaking/SubmissionSuccessPage';
 import { CountdownPage } from '../pages/matchmaking/CountdownPage';
+import { MatchRevealPage } from '../pages/matchmaking/MatchRevealPage';
+import { MessagingPage } from '../pages/matchmaking/MessagingPage';
 import { FaceVerifiedTransitionPage } from '../pages/onboarding/FaceVerifiedTransitionPage';
 import { INITIAL_USER_PROFILE } from '../data/mockData';
 import { AppRoute } from '../types/navigation';
@@ -247,6 +249,11 @@ export const AppShell: React.FC = () => {
                     await updateProfile({ instagramId: profile.instagramId });
                   }
                   await refreshProfile();
+                  try {
+                    sessionStorage.setItem('stringx_show_registration_celebration', 'true');
+                  } catch {
+                    // ignore
+                  }
                   navigateTo(AppRoute.SUCCESS);
                 }}
                 onBackToLanding={() => {
@@ -388,11 +395,27 @@ export const AppShell: React.FC = () => {
               />
             )}
 
-            {/* Screen 23: Navratri Countdown & Reveal */}
+            {/* Screen 23: Navratri Countdown */}
             {screen === AppRoute.COUNTDOWN && (
               <CountdownPage
                 onBack={() => navigateTo(AppRoute.HOME)}
                 onViewProfile={() => navigateTo(AppRoute.PROFILE)}
+                onRevealMatch={() => navigateTo(AppRoute.MATCH_REVEAL)}
+              />
+            )}
+
+            {/* Screen 24: Strings Attached / Match Reveal */}
+            {screen === AppRoute.MATCH_REVEAL && (
+              <MatchRevealPage
+                onBack={() => navigateTo(AppRoute.COUNTDOWN)}
+                onSendMessage={() => navigateTo(AppRoute.MESSAGES)}
+              />
+            )}
+
+            {/* Screen 25: Match Chat / Messaging */}
+            {screen === AppRoute.MESSAGES && (
+              <MessagingPage
+                onBack={() => navigateTo(AppRoute.MATCH_REVEAL)}
               />
             )}
           </>

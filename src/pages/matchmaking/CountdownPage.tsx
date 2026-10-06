@@ -6,12 +6,14 @@ interface CountdownPageProps {
   onBack: () => void;
   onViewProfile: () => void;
   onEnterEventDiscovery?: () => void;
+  onRevealMatch?: () => void;
 }
 
 export const CountdownPage: React.FC<CountdownPageProps> = ({
   onBack,
   onViewProfile,
   onEnterEventDiscovery,
+  onRevealMatch,
 }) => {
   const { profile } = useAuth();
 
@@ -21,6 +23,7 @@ export const CountdownPage: React.FC<CountdownPageProps> = ({
       onBack={onBack}
       onViewProfile={onViewProfile}
       onEnterEventDiscovery={onEnterEventDiscovery}
+      onRevealMatch={onRevealMatch}
     />
   );
 };

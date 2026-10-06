@@ -29,9 +29,11 @@ export const DEV_SCREENS: DevScreenInfo[] = [
   { number: '19', stepIndex: 19, label: 'Prompt 01' },
   { number: '20', stepIndex: 20, label: 'Prompt 02' },
   { number: '21', stepIndex: 21, label: 'Instagram ID' },
-  { number: '22', stepIndex: 22, label: 'Submission Success' },
+  { number: '22', stepIndex: 22, label: 'Finding Your Match' },
   { number: '23', stepIndex: 23, label: 'Countdown' },
-  { number: '24', stepIndex: 24, label: 'My Profile & Settings' },
+  { number: '24', stepIndex: 24, label: 'Match Reveal' },
+  { number: '25', stepIndex: 25, label: 'Message Screen' },
+  { number: '26', stepIndex: 26, label: 'My Profile & Settings' },
 ];
 
 interface DevScreenRailProps {
@@ -48,7 +50,7 @@ export const DevScreenRail: React.FC<DevScreenRailProps> = ({
   // Allow toggling side if developer prefers left or right on desktop
   const [side, setSide] = useState<'right' | 'left'>('right');
 
-  // Compute active step index matching the sequential 24-screen map
+  // Compute active step index matching the sequential 26-screen map
   const activeStepIndex = (() => {
     if (currentScreen === 'landing') {
       return 1;
@@ -72,8 +74,14 @@ export const DevScreenRail: React.FC<DevScreenRailProps> = ({
     if (currentScreen === 'countdown') {
       return 23;
     }
-    if (currentScreen === 'profile') {
+    if (currentScreen === 'match-reveal') {
       return 24;
+    }
+    if (currentScreen === 'messages') {
+      return 25;
+    }
+    if (currentScreen === 'profile') {
+      return 26;
     }
     return 1;
   })();

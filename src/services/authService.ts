@@ -54,25 +54,13 @@ export const authService = {
    */
   async isEmailPermitted(email: string | null | undefined): Promise<boolean> {
     if (!email || !email.trim()) return false;
+
     const clean = email.toLowerCase().trim();
 
-    // 1. Fast client-side check for official Parul University student format
-    if (/^[0-9]+@paruluniversity\.ac\.in$/i.test(clean)) {
+    // TEMPORARY PAUSE:
+    // Permit any standard email format regardless of domain.
+    if (/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/i.test(clean)) {
       return true;
-    }
-
-    // 2. Authoritative check for developer/tester allowlist via secure RPC
-    if (isSupabaseConfigured) {
-      try {
-        const { data, error } = await (supabase.rpc as any)('is_email_allowed', {
-          p_email: clean,
-        });
-        if (!error && typeof data === 'boolean') {
-          return data;
-        }
-      } catch (err) {
-        console.warn('[authService] is_email_allowed RPC check notice:', err);
-      }
     }
 
     return false;

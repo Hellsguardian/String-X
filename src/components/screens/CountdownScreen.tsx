@@ -10,47 +10,82 @@ interface CountdownScreenProps {
   onBack?: () => void;
   onViewProfile?: () => void;
   onEnterEventDiscovery?: () => void;
+  onRevealMatch?: () => void;
+}
+
+/**
+ * String X Match Identity Reveal Target:
+ * 11 October 2026 at 5:30 PM IST (Asia/Kolkata / UTC+05:30)
+ * Equivalent to: 2026-10-11T12:00:00Z
+ */
+const REVEAL_TARGET_TIMESTAMP = new Date('2026-10-11T17:30:00+05:30').getTime();
+
+interface TimeRemaining {
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  isComplete: boolean;
+}
+
+function calculateTimeLeft(targetMs: number = REVEAL_TARGET_TIMESTAMP): TimeRemaining {
+  const diff = targetMs - Date.now();
+  if (diff <= 0) {
+    return { days: 0, hours: 0, minutes: 0, seconds: 0, isComplete: true };
+  }
+
+  const seconds = Math.floor((diff / 1000) % 60);
+  const minutes = Math.floor((diff / (1000 * 60)) % 60);
+  const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+  return { days, hours, minutes, seconds, isComplete: false };
 }
 
 export const CountdownScreen: React.FC<CountdownScreenProps> = ({
   profile,
   onBack,
+  onRevealMatch,
 }) => {
   const [showRevealModal, setShowRevealModal] = useState(false);
-
-  // Navratri Countdown timer logic (days, hours, minutes, seconds)
-  // Target: 12 days, 7 hours, 40 minutes, 40 seconds
-  const [timeLeft, setTimeLeft] = useState({
-    days: 12,
-    hours: 7,
-    minutes: 40,
-    seconds: 40
-  });
+  const [timeLeft, setTimeLeft] = useState<TimeRemaining>(() => calculateTimeLeft());
 
   useEffect(() => {
+    const initial = calculateTimeLeft();
+    if (initial.isComplete) {
+      if (onRevealMatch) {
+        onRevealMatch();
+      } else {
+        setShowRevealModal(true);
+      }
+      return;
+    }
+
     const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev.seconds > 0) {
-          return { ...prev, seconds: prev.seconds - 1 };
-        } else if (prev.minutes > 0) {
-          return { ...prev, minutes: prev.minutes - 1, seconds: 59 };
-        } else if (prev.hours > 0) {
-          return { ...prev, hours: prev.hours - 1, minutes: 59, seconds: 59 };
-        } else if (prev.days > 0) {
-          return { ...prev, days: prev.days - 1, hours: 23, minutes: 59, seconds: 59 };
+      const remaining = calculateTimeLeft();
+      setTimeLeft(remaining);
+
+      if (remaining.isComplete) {
+        clearInterval(timer);
+        if (onRevealMatch) {
+          onRevealMatch();
         } else {
-          // When countdown reaches zero, trigger the Match Reveal experience
           setShowRevealModal(true);
-          return prev;
         }
-      });
+      }
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [onRevealMatch]);
 
   return (
-    <div className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-between p-5 sm:p-6 pt-[max(16px,env(safe-area-inset-top,0px))] pb-[max(16px,env(safe-area-inset-bottom,0px))] bg-[#251436] text-white select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
+    <div 
+      className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-between p-5 sm:p-6 bg-[#251436] text-white select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]"
+      style={{
+        paddingTop: 'max(16px, env(safe-area-inset-top, 16px))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))',
+      }}
+    >
       {/* 9. BACKGROUND & VISUAL ATMOSPHERE: Atmospheric ambient particles & subtle radial glow */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         {/* Soft radial atmospheric glow behind the countdown */}

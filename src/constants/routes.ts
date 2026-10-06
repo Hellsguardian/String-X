@@ -8,6 +8,8 @@ export const ROUTES = {
   PROFILE: AppRoute.PROFILE,
   SUCCESS: AppRoute.SUCCESS,
   COUNTDOWN: AppRoute.COUNTDOWN,
+  MATCH_REVEAL: AppRoute.MATCH_REVEAL,
+  MESSAGES: AppRoute.MESSAGES,
 } as const;
 
 export interface DevScreenMapping {
@@ -18,7 +20,7 @@ export interface DevScreenMapping {
 }
 
 /**
- * Exact mapping of the 24 screens in the DevScreenRail
+ * Exact mapping of the 26 screens in the DevScreenRail
  */
 export const DEV_SCREEN_MAP: DevScreenMapping[] = [
   { stepIndex: 1, screen: AppRoute.LANDING, label: 'Landing Screen' },
@@ -44,5 +46,7 @@ export const DEV_SCREEN_MAP: DevScreenMapping[] = [
   { stepIndex: 21, screen: AppRoute.ONBOARDING, onboardingStep: 17, label: 'Instagram ID' },
   { stepIndex: 22, screen: AppRoute.SUCCESS, label: 'Submission Success' },
   { stepIndex: 23, screen: AppRoute.COUNTDOWN, label: 'Countdown' },
-  { stepIndex: 24, screen: AppRoute.PROFILE, label: 'My Profile & Settings' },
+  { stepIndex: 24, screen: AppRoute.MATCH_REVEAL, label: 'Match Reveal' },
+  { stepIndex: 25, screen: AppRoute.MESSAGES, label: 'Message Screen' },
+  { stepIndex: 26, screen: AppRoute.PROFILE, label: 'My Profile & Settings' },
 ];

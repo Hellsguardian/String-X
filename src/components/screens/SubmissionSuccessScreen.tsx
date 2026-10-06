@@ -1,223 +1,341 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { StringXLogo } from '../illustrations/GarbaIllustrations';
 import { UserProfile } from '../../types';
+import { matchmakingService, ActiveMatchResult } from '../../services/matchmakingService';
+import { RegistrationSuccessOverlay } from './RegistrationSuccessOverlay';
 
 interface SubmissionSuccessScreenProps {
   profile?: UserProfile;
   userId?: string;
   collegeName?: string;
   onBack?: () => void;
-  onContinueToCountdown: () => void;
+  onContinueToCountdown: (match?: ActiveMatchResult) => void;
   onEnterMainApp?: () => void;
+  showRegistrationCelebration?: boolean;
+  onCelebrationComplete?: () => void;
 }
 
-interface CandidateSignal {
+interface DynamicCandidate {
   id: string;
-  x: number; // percentage 0-100
-  y: number; // percentage 0-100
-  size: number; // px
+  x: number; // percentage (relative to radar container: 50 + cos * radius)
+  y: number; // percentage (relative to radar container: 50 + sin * radius)
   color: string;
-  glow: string;
-  opacity: number;
-  pulseDelay: number;
-  pulseDuration: number;
+  size: 'sm' | 'md' | 'lg';
+  haloOpacity: number;
+  glowBlur: number;
+  waveDuration: string;
+  waveDelay: string;
+  waveDelay2: string;
+  fadeDuration: number;
 }
 
-const ACCENT_COLORS = [
-  { color: '#FFC928', glow: 'rgba(255, 201, 40, 0.75)' },
-  { color: '#F02A8A', glow: 'rgba(240, 42, 138, 0.75)' },
-  { color: '#894EFF', glow: 'rgba(137, 78, 255, 0.75)' },
-  { color: '#08A98D', glow: 'rgba(8, 169, 141, 0.75)' },
+const CANDIDATE_COLORS = [
+  '#08A98D', // Emerald / teal
+  '#894EFF', // Purple
+  '#F02A8A', // Pink
+  '#FFC928', // Warm yellow
+];
+
+const CANDIDATE_SIZES: Array<'sm' | 'md' | 'lg'> = ['sm', 'md', 'lg'];
+
+const SIZES_MAP = {
+  sm: { dot: 'w-[5.75px] h-[5.75px]' },
+  md: { dot: 'w-[7.5px] h-[7.5px]' },
+  lg: { dot: 'w-[9.2px] h-[9.2px]' },
+};
+
+const DYNAMIC_STATUS_MESSAGES = [
+  'Finding your Garba vibe…',
+  'Scanning campus energy…',
+  'Checking shared interests…',
+  'Finding your rhythm…',
+  'Looking for your string…',
+  'Almost there…',
 ];
 
 /**
- * Procedurally generates 1 to 5 candidate signals at completely randomized polar positions.
- * Ensures dots stay within radar bounds and avoid overlapping the central user marker.
+ * Generate a randomized candidate set for a radar scanning cycle.
+ * - Random number of dots: 3 to 7 dots.
+ * - Position strictly within radar coordinate system: 18% to 37% distance from center (50%, 50%),
+ *   avoiding the central target node (radius ~12%) and outer boundary (radius 50%).
+ * - Random color from existing palette.
+ * - Random size within existing size range (sm, md, lg).
+ * - Anti-clustering so dots don't overlap awkwardly.
  */
-function generateRandomSignals(cycle: number): CandidateSignal[] {
-  const count = Math.floor(Math.random() * 5) + 1; // Strictly 1 to 5 signals
-  const signals: CandidateSignal[] = [];
+function generateCycleCandidates(
+  cycleId: number,
+  count: number,
+  cycleDuration: number
+): DynamicCandidate[] {
+  const dots: DynamicCandidate[] = [];
+  const fadeDuration = Math.min(0.55, Math.max(0.35, Number((cycleDuration * 0.22).toFixed(2))));
 
   for (let i = 0; i < count; i++) {
-    let attempts = 0;
     let x = 50;
     let y = 50;
-    let tooClose = true;
+    let attempts = 0;
 
-    while (attempts < 20 && tooClose) {
-      // Distance from center: between 19% and 42% (center is 50%, outer ring boundary is 50%)
-      const minR = 19;
-      const maxR = 42;
-      const r = minR + Math.random() * (maxR - minR);
+    while (attempts < 30) {
       const angle = Math.random() * 2 * Math.PI;
+      // Distance from center: safe zone between 18% and 37% aligned with radar rings
+      const distancePercent = 18 + Math.random() * 19;
 
-      x = Math.round((50 + r * Math.cos(angle)) * 10) / 10;
-      y = Math.round((50 + r * Math.sin(angle)) * 10) / 10;
+      const testX = Math.round((50 + Math.cos(angle) * distancePercent) * 10) / 10;
+      const testY = Math.round((50 + Math.sin(angle) * distancePercent) * 10) / 10;
 
-      // Prevent dots from awkwardly clumping on top of each other (min 11% distance)
-      tooClose = signals.some(s => {
-        const dx = s.x - x;
-        const dy = s.y - y;
-        return Math.sqrt(dx * dx + dy * dy) < 11;
+      // Minimum distance between dots (at least 10–13% separation)
+      const minDistance = count >= 6 ? 10 : 13;
+      const isTooClose = dots.some((other) => {
+        return Math.hypot(testX - other.x, testY - other.y) < minDistance;
       });
+
+      if (!isTooClose || attempts === 29) {
+        x = testX;
+        y = testY;
+        break;
+      }
       attempts++;
     }
 
-    const col = ACCENT_COLORS[Math.floor(Math.random() * ACCENT_COLORS.length)];
-    signals.push({
-      id: `sig-${cycle}-${i}-${x}-${y}`,
+    const color = CANDIDATE_COLORS[Math.floor(Math.random() * CANDIDATE_COLORS.length)];
+    const size = CANDIDATE_SIZES[Math.floor(Math.random() * CANDIDATE_SIZES.length)];
+
+    const haloOpacity = Number((0.32 + Math.random() * 0.22).toFixed(2));
+    const glowBlur = Math.round(5 + Math.random() * 4);
+
+    const baseDelayNum = Number((i * 0.18 + Math.random() * 0.12).toFixed(2));
+    const waveDelay = `${baseDelayNum}s`;
+    const waveDelay2 = `${(baseDelayNum + 0.55).toFixed(2)}s`;
+    const waveDuration = `${(1.1 + Math.random() * 0.3).toFixed(1)}s`;
+
+    dots.push({
+      id: `c${cycleId}-d${i}-${Math.random().toString(36).substring(2, 7)}`,
       x,
       y,
-      size: 6 + Math.floor(Math.random() * 4), // 6 to 9px - small, subtle, premium
-      color: col.color,
-      glow: col.glow,
-      opacity: 0.65 + Math.random() * 0.35,
-      pulseDelay: Math.random() * 1.2,
-      pulseDuration: 1.8 + Math.random() * 0.8,
+      color,
+      size,
+      haloOpacity,
+      glowBlur,
+      waveDuration,
+      waveDelay,
+      waveDelay2,
+      fadeDuration,
     });
   }
 
-  return signals;
+  return dots;
 }
 
-import { matchmakingService, ActiveMatchResult } from '../../services/matchmakingService';
+/**
+ * Organic progress calculation: calculates next confidence target between 15% and 90%
+ */
+function getNextTarget(current: number): number {
+  const roll = Math.random();
+  let delta: number;
 
-export type MatchmakingState = 'searching' | 'evaluating' | 'matched' | 'error';
+  if (current < 35) {
+    delta = Math.floor(Math.random() * 12) + 8;
+  } else if (current > 80) {
+    if (roll < 0.65) {
+      delta = -(Math.floor(Math.random() * 12) + 6);
+    } else {
+      delta = Math.floor(Math.random() * 5) + 1;
+    }
+  } else {
+    if (roll < 0.58) {
+      delta = Math.floor(Math.random() * 13) + 5;
+    } else if (roll < 0.88) {
+      delta = -(Math.floor(Math.random() * 10) + 4);
+    } else {
+      delta = (Math.random() < 0.5 ? 1 : -1) * (Math.floor(Math.random() * 3) + 1);
+    }
+  }
 
-// Live Search Status (Above Radar) - loops through natural evaluation phases
-const SEARCH_STATUS_MESSAGES = [
-  'Checking Garba vibes…',
-  'Evaluating candidate compatibility…',
-  'Scanning campus…',
-  'Looking for compatible energy…',
-  'Finding your kind of people…',
-  'Scanning nearby strings…',
-  'Comparing campus preferences…',
-];
-
-// Human, social bottom activity messages
-const BOTTOM_ACTIVITY_MESSAGES = [
-  'Scanning campus strings…',
-  'Finding your kind of people…',
-  'Looking for your rhythm…',
-  'Still searching…',
-  'Your string is out there…',
-];
+  let next = current + delta;
+  if (next < 15) next = 15 + Math.floor(Math.random() * 5);
+  if (next > 90) next = 84 + Math.floor(Math.random() * 6);
+  return next;
+}
 
 export const SubmissionSuccessScreen: React.FC<SubmissionSuccessScreenProps> = ({
   profile,
   userId,
   onBack,
   onContinueToCountdown,
+  showRegistrationCelebration = false,
+  onCelebrationComplete,
 }) => {
   const currentUserId = userId || profile?.id;
-  const [matchState, setMatchState] = useState<MatchmakingState>('searching');
-  const [activeMatch, setActiveMatch] = useState<ActiveMatchResult | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [scanCycle, setScanCycle] = useState(0);
-  const [signals, setSignals] = useState<CandidateSignal[]>(() => generateRandomSignals(0));
-  const [searchStatusIndex, setSearchStatusIndex] = useState(0);
-  const [bottomStatusIndex, setBottomStatusIndex] = useState(0);
-  const [progress, setProgress] = useState(24);
+
+  // One-time registration celebration guard (triggered on transition from Page 21 -> Page 22)
+  const shouldCelebrateOnMount = useRef<boolean>(
+    Boolean(
+      showRegistrationCelebration ||
+      (typeof window !== 'undefined' && sessionStorage.getItem('stringx_show_registration_celebration') === 'true')
+    )
+  );
+
+  // Immediately clear the session flag so refresh/revisit will never replay
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem('stringx_show_registration_celebration');
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  const [isCelebrating, setIsCelebrating] = useState<boolean>(shouldCelebrateOnMount.current);
+
+  const handleCelebrationComplete = useCallback(() => {
+    setIsCelebrating(false);
+    onCelebrationComplete?.();
+  }, [onCelebrationComplete]);
+
+  // Algorithmic Target Progress (strictly 15–90% while searching, 100% on match)
+  const [targetProgress, setTargetProgress] = useState(38);
+  const [displayedProgress, setDisplayedProgress] = useState(38);
+
+  // Match state
+  const [_assignedMatch, setAssignedMatch] = useState<ActiveMatchResult | null>(null);
+  const [isMatchFound, setIsMatchFound] = useState(false);
+
+  // Dynamic candidate signals with randomized 3–7 dots
+  const [candidates, setCandidates] = useState<DynamicCandidate[]>(() => {
+    const initialDuration = Number((1.5 + Math.random() * 2.0).toFixed(2));
+    const initialCount = Math.floor(Math.random() * 5) + 3; // 3 to 7 dots
+    return generateCycleCandidates(1, initialCount, initialDuration);
+  });
+  const dotSeqRef = useRef(10);
+
+  // Status message index cycling
+  const [statusIndex, setStatusIndex] = useState(0);
+
+  // Navigation guard
   const hasNavigatedRef = useRef(false);
 
-  // Every complete radar rotation (~3.0s), regenerate a new batch of 1 to 5 candidate signals
-  // Radar continues scanning indefinitely while searching
+  // 1. Radar Dot Scanning Lifecycle
   useEffect(() => {
-    if (matchState === 'matched') return;
+    if (isMatchFound || isCelebrating) return;
 
-    const cycleInterval = setInterval(() => {
-      setScanCycle(prev => {
-        const next = prev + 1;
-        setSignals(generateRandomSignals(next));
-        return next;
+    let timeoutId: NodeJS.Timeout;
+
+    const scheduleNextDotCycle = () => {
+      const nextDurationSec = Number((1.0 + Math.random() * 3.0).toFixed(2));
+      const nextDurationMs = Math.round(nextDurationSec * 1000);
+
+      timeoutId = setTimeout(() => {
+        if (isMatchFound) return;
+
+        dotSeqRef.current += 1;
+        const cycleId = dotSeqRef.current;
+        const nextCount = Math.floor(Math.random() * 5) + 3;
+        const nextDots = generateCycleCandidates(cycleId, nextCount, nextDurationSec);
+
+        setCandidates(nextDots);
+        scheduleNextDotCycle();
+      }, nextDurationMs);
+    };
+
+    scheduleNextDotCycle();
+
+    return () => clearTimeout(timeoutId);
+  }, [isMatchFound, isCelebrating]);
+
+  // 2. Organic Progress Updates at Irregular Intervals (1.4s to 2.8s)
+  useEffect(() => {
+    if (isMatchFound || isCelebrating) return;
+
+    let timeoutId: NodeJS.Timeout;
+
+    const scheduleNext = () => {
+      const delayMs = Math.floor(Math.random() * 1400) + 1400;
+      timeoutId = setTimeout(() => {
+        setTargetProgress((prev) => getNextTarget(prev));
+        scheduleNext();
+      }, delayMs);
+    };
+
+    scheduleNext();
+
+    return () => clearTimeout(timeoutId);
+  }, [isMatchFound, isCelebrating]);
+
+  // 3. Smooth Progress Bar & Number Interpolation
+  useEffect(() => {
+    if (displayedProgress === targetProgress) return;
+
+    const diff = targetProgress - displayedProgress;
+    const step = Math.sign(diff) * Math.max(1, Math.min(Math.abs(diff), Math.ceil(Math.abs(diff) / 8)));
+    const tickMs = isMatchFound ? 22 : 45;
+
+    const timer = setTimeout(() => {
+      setDisplayedProgress((prev) => {
+        if (Math.abs(targetProgress - prev) <= Math.abs(step)) {
+          return targetProgress;
+        }
+        return prev + step;
       });
-    }, 3000);
+    }, tickMs);
 
-    return () => clearInterval(cycleInterval);
-  }, [matchState]);
+    return () => clearTimeout(timer);
+  }, [displayedProgress, targetProgress, isMatchFound]);
 
-  // Smoothly cycle search status text above radar
+  // 4. Smooth Status Text Cycling
   useEffect(() => {
-    if (matchState === 'matched') return;
+    if (isMatchFound || isCelebrating) return;
 
-    const statusTimer = setInterval(() => {
-      setSearchStatusIndex(prev => (prev + 1) % SEARCH_STATUS_MESSAGES.length);
-    }, 2600);
+    const cycleTimer = setInterval(() => {
+      setStatusIndex((prev) => (prev + 1) % DYNAMIC_STATUS_MESSAGES.length);
+    }, 3800);
 
-    return () => clearInterval(statusTimer);
-  }, [matchState]);
+    return () => clearInterval(cycleTimer);
+  }, [isMatchFound, isCelebrating]);
 
-  // Smoothly cycle bottom human activity status
+  // 5. Match Confirmation Handler
+  const handleMatchConfirmed = (match: ActiveMatchResult, isImmediate = false) => {
+    if (hasNavigatedRef.current) return;
+
+    setAssignedMatch(match);
+    setIsMatchFound(true);
+    setTargetProgress(100);
+
+    const delay = isImmediate ? 600 : 1450;
+
+    setTimeout(() => {
+      if (!hasNavigatedRef.current) {
+        hasNavigatedRef.current = true;
+        onContinueToCountdown(match);
+      }
+    }, delay);
+  };
+
+  // 6. Check for Existing Match & Setup Realtime / Polling Listeners against Supabase backend
   useEffect(() => {
-    if (matchState === 'matched') return;
-
-    const bottomTimer = setInterval(() => {
-      setBottomStatusIndex(prev => (prev + 1) % BOTTOM_ACTIVITY_MESSAGES.length);
-    }, 3000);
-
-    return () => clearInterval(bottomTimer);
-  }, [matchState]);
-
-  // Procedural scan progress: cycles through natural wave steps while searching/evaluating
-  // NEVER triggers navigation or sticks at 100% when no match exists
-  useEffect(() => {
-    if (matchState === 'matched') return;
-
-    const scanSteps = [24, 38, 49, 63, 75, 84, 91];
-    let stepIdx = 0;
-
-    const progressTimer = setInterval(() => {
-      stepIdx = (stepIdx + 1) % scanSteps.length;
-      setProgress(scanSteps[stepIdx]);
-    }, 850);
-
-    return () => clearInterval(progressTimer);
-  }, [matchState]);
-
-  // Real backend matching checker & subscription
-  // Indefinitely waits until an actual match is found in Supabase / backend
-  useEffect(() => {
-    if (matchState === 'matched') return;
+    if (isMatchFound) return;
 
     let isMounted = true;
 
     const performCheck = async () => {
       try {
-        setMatchState(prev => (prev === 'error' ? 'evaluating' : (prev === 'searching' ? 'evaluating' : 'searching')));
         const res = await matchmakingService.checkActiveMatch(currentUserId);
         if (!isMounted) return;
 
-        if (res.error) {
-          console.warn('[MATCHMAKING_RADAR] Backend check notice:', res.error);
-          setMatchState('error');
-          setErrorMessage('Something interrupted the search. Trying again…');
-          return;
-        }
-
-        setErrorMessage(null);
-
         if (res.data) {
-          // Actual confirmed match found in backend!
-          handleMatchConfirmed(res.data);
-        } else {
-          // Zero candidates / waiting for match -> remain searching indefinitely
-          setMatchState('searching');
+          handleMatchConfirmed(res.data, false);
         }
-      } catch (err: any) {
-        if (!isMounted) return;
-        console.warn('[MATCHMAKING_RADAR] Poll exception:', err);
-        setMatchState('error');
-        setErrorMessage('Something interrupted the search. Trying again…');
+      } catch (err) {
+        console.warn('[MATCHMAKING_RADAR] Poll check exception:', err);
       }
     };
 
     // Immediate check on mount
     performCheck();
 
-    // Regular polling interval (every 3.5s) to detect newly created matches
+    // Regular polling interval (every 3.5s)
     const pollInterval = setInterval(performCheck, 3500);
 
     // Realtime Supabase channel subscription
@@ -227,7 +345,7 @@ export const SubmissionSuccessScreen: React.FC<SubmissionSuccessScreenProps> = (
         currentUserId,
         (match) => {
           if (isMounted) {
-            handleMatchConfirmed(match);
+            handleMatchConfirmed(match, false);
           }
         },
         (err) => {
@@ -241,269 +359,330 @@ export const SubmissionSuccessScreen: React.FC<SubmissionSuccessScreenProps> = (
       clearInterval(pollInterval);
       if (unsubscribe) unsubscribe();
     };
-  }, [currentUserId, matchState]);
-
-  // Actual match confirmation handler: brief focused celebration then transition to Strings Attached
-  const handleMatchConfirmed = (match: ActiveMatchResult) => {
-    if (hasNavigatedRef.current) return;
-    setActiveMatch(match);
-    setMatchState('matched');
-    setProgress(100);
-
-    // Allow user to observe the celebratory match-locked state before transitioning
-    setTimeout(() => {
-      if (!hasNavigatedRef.current) {
-        hasNavigatedRef.current = true;
-        onContinueToCountdown();
-      }
-    }, 1200);
-  };
-
-  const isMatchFound = matchState === 'matched';
+  }, [currentUserId, isMatchFound]);
 
   return (
-    <div
-      className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-between p-5 sm:p-6 pt-[max(16px,env(safe-area-inset-top,0px))] pb-[max(16px,env(safe-area-inset-bottom,0px))] bg-[#251436] text-white select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]"
+    <div 
+      className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-between p-4 sm:p-5 bg-[#251436] text-white select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]"
+      style={{
+        paddingTop: 'max(14px, env(safe-area-inset-top, 14px))',
+        paddingBottom: 'max(16px, env(safe-area-inset-bottom, 16px))',
+      }}
     >
-      {/* 8. SUBTLE AMBIENT LIFE: Soft background atmospheric glow & floating micro-particles */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {/* Soft radial background glow centered on radar */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          1. BACKGROUND: Deep Plum #251436 + Precise Accent Dots
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden select-none">
+        {/* Subtle radial depth */}
         <div
-          className="absolute inset-0 opacity-40"
+          className="absolute inset-0 pointer-events-none"
           style={{
             background:
-              'radial-gradient(circle at 50% 52%, rgba(137, 78, 255, 0.16) 0%, rgba(240, 42, 138, 0.08) 35%, transparent 68%)'
+              'radial-gradient(circle at 50% 50%, rgba(66, 39, 156, 0.26) 0%, rgba(37, 20, 54, 0.52) 60%, transparent 85%)',
           }}
         />
 
-        {/* Tiny slow-drifting micro-particles */}
-        <motion.div
-          animate={{ y: [0, -14, 0], opacity: [0.15, 0.45, 0.15] }}
-          transition={{ repeat: Infinity, duration: 6.5, ease: "easeInOut" }}
-          className="absolute top-14 left-7 w-1 h-1 rounded-full bg-[#FFC928]"
-        />
-        <motion.div
-          animate={{ y: [0, 15, 0], opacity: [0.12, 0.4, 0.12] }}
-          transition={{ repeat: Infinity, duration: 7.5, ease: "easeInOut" }}
-          className="absolute top-28 right-8 w-1.5 h-1.5 rounded-full bg-[#F02A8A]"
-        />
-        <motion.div
-          animate={{ scale: [1, 1.3, 1], opacity: [0.15, 0.35, 0.15] }}
-          transition={{ repeat: Infinity, duration: 5.8, ease: "easeInOut" }}
-          className="absolute bottom-24 left-10 w-1 h-1 rounded-full bg-[#08A98D]"
+        {/* Subtle grid dots */}
+        <div
+          className="absolute inset-0 opacity-[0.035] pointer-events-none"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle, #E3E0F5 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }}
         />
       </div>
 
-      {/* 2. TOP STATUS BAR: Native Android-style Back Button + Mathematically Centered STRING X */}
-      <div className="relative flex items-center shrink-0 z-10 w-full h-10 sm:h-11">
-        {/* Back button on the far left: 40px rounded-square, dark translucent purple, subtle lavender border */}
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          2. TOP NAVIGATION: Back Button + Centered STRING X
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <header className="relative flex items-center justify-between shrink-0 z-20 w-full h-10">
         <button
           type="button"
           onClick={onBack}
-          className="w-10 h-10 rounded-xl bg-[#1B0B2A]/80 hover:bg-[#1B0B2A] active:translate-y-0.5 border border-[#E3E0F5]/20 flex items-center justify-center text-white transition-all cursor-pointer shadow-xs z-20"
+          className="w-9 h-9 rounded-xl bg-[#1B0B2A] hover:bg-[#230D35] active:scale-95 border border-[#894EFF]/30 flex items-center justify-center text-white transition-all cursor-pointer shadow-xs z-30"
           aria-label="Go back"
         >
-          <ArrowLeft size={18} strokeWidth={2.5} />
+          <ArrowLeft size={16} strokeWidth={2.4} />
         </button>
 
-        {/* STRING-X logo mathematically centered relative to the entire phone viewport width */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-10">
           <StringXLogo size="sm" light={true} />
         </div>
-      </div>
 
-      {/* 1. BALANCED CENTRAL COMPOSITION */}
-      <div className="flex-1 min-h-0 flex flex-col justify-center items-center text-center py-1 sm:py-2 relative z-10">
-        {/* 3. MAIN HEADING */}
-        <div className="shrink-0 mb-2 sm:mb-2.5">
-          <h1 className="text-2xl sm:text-[28px] font-black text-white tracking-tight leading-[1.12]">
-            {isMatchFound ? (
-              <span className="text-[#FFC928]">String connected!</span>
-            ) : (
-              <>
-                Your string is<br />
-                getting <span className="bg-gradient-to-r from-[#FFC928] via-[#F02A8A] to-[#894EFF] bg-clip-text text-transparent">connected.</span>
-              </>
-            )}
+        <div className="w-9 h-9 opacity-0 pointer-events-none" />
+      </header>
+
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          REGISTRATION COMPLETION CELEBRATION OVERLAY (Page 21 -> 22)
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <AnimatePresence>
+        {isCelebrating && (
+          <RegistrationSuccessOverlay
+            onBack={onBack}
+            onComplete={handleCelebrationComplete}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          3. MAIN CONTENT: Heading + DYNAMIC HERO RADAR + Status Section
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <motion.div
+        key="main-radar-view"
+        initial={shouldCelebrateOnMount.current ? { opacity: 0, scale: 0.98 } : false}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}
+        className="flex-1 flex flex-col items-center justify-center relative z-20 w-full max-w-[340px] mx-auto py-2"
+      >
+        {/* MAIN HEADING */}
+        <div className="text-center shrink-0">
+          <h1 className="text-[28px] sm:text-[30px] font-black tracking-tight leading-[1.12] text-white text-center">
+            Your string is
+            <br />
+            getting{' '}
+            <span
+              className="bg-gradient-to-r from-[#FF9F28] via-[#F02A8A] to-[#894EFF] bg-clip-text text-transparent font-black"
+              style={{ WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
+            >
+              connected.
+            </span>
           </h1>
-          <p className="text-xs font-semibold text-[#E3E0F5]/75 max-w-xs mx-auto mt-1 leading-normal">
-            {isMatchFound
-              ? 'Locking connection before partner reveal…'
-              : "We're searching campus for someone who matches your energy, interests and Garba vibe."}
+
+          <p className="text-[11px] font-medium text-[#E3E0F5]/85 mt-2 max-w-[290px] mx-auto text-center leading-[1.35]">
+            We’re searching campus for someone who matches
+            <br />
+            your energy, interests and Garba vibe.
           </p>
         </div>
 
-        {/* 4. LIVE SEARCH STATUS (Directly Above Radar) */}
-        <div className="h-6 mb-2 flex items-center justify-center">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={isMatchFound ? 'found' : (errorMessage ? 'error' : searchStatusIndex)}
-              initial={{ opacity: 0, y: 3, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -3, scale: 0.96 }}
-              transition={{ duration: 0.2 }}
-              className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full border text-[11px] font-bold shadow-[0_0_12px_rgba(137,78,255,0.15)] ${
-                errorMessage
-                  ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
-                  : 'bg-[#1B0B2A]/80 border-[#894EFF]/35 text-[#FFC928]'
+        {/* DYNAMIC HERO RADAR */}
+        <div className="my-5 sm:my-6 shrink-0 flex items-center justify-center">
+          <div className="relative w-[232px] h-[232px] sm:w-[246px] sm:h-[246px] rounded-full bg-[#180826] border border-[#894EFF]/25 shadow-[0_0_36px_rgba(137,78,255,0.18)] flex items-center justify-center overflow-hidden">
+            {/* Concentric rings & dashed radial division lines */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 246 246">
+              {/* Outer circle */}
+              <circle cx="123" cy="123" r="115" fill="none" stroke="#894EFF" strokeWidth="1" strokeOpacity="0.38" />
+              {/* Circle 3 (dashed) */}
+              <circle cx="123" cy="123" r="84" fill="none" stroke="#894EFF" strokeWidth="0.9" strokeOpacity="0.34" strokeDasharray="3 3" />
+              {/* Circle 2 (dashed) */}
+              <circle cx="123" cy="123" r="56" fill="none" stroke="#894EFF" strokeWidth="0.9" strokeOpacity="0.36" strokeDasharray="3 3" />
+              {/* Circle 1 (inner ring) */}
+              <circle cx="123" cy="123" r="30" fill="none" stroke="#894EFF" strokeWidth="1" strokeOpacity="0.38" />
+
+              {/* Dashed radial division lines (crosshairs) */}
+              <line x1="0" y1="123" x2="246" y2="123" stroke="#894EFF" strokeWidth="0.9" strokeOpacity="0.28" strokeDasharray="3 3" />
+              <line x1="123" y1="0" x2="123" y2="246" stroke="#894EFF" strokeWidth="0.9" strokeOpacity="0.28" strokeDasharray="3 3" />
+              {/* Dashed diagonals */}
+              <line x1="36" y1="36" x2="210" y2="210" stroke="#894EFF" strokeWidth="0.7" strokeOpacity="0.18" strokeDasharray="3 3" />
+              <line x1="210" y1="36" x2="36" y2="210" stroke="#894EFF" strokeWidth="0.7" strokeOpacity="0.18" strokeDasharray="3 3" />
+            </svg>
+
+            {/* CONTINUOUS ROTATING RADAR SWEEP LINE */}
+            <div
+              className={`absolute inset-0 rounded-full pointer-events-none ${
+                isMatchFound ? 'animate-radar-sweep-settled opacity-40' : 'animate-radar-sweep opacity-100'
               }`}
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${errorMessage ? 'bg-amber-400' : 'bg-[#FFC928]'} animate-pulse`} />
-              <span>
-                {isMatchFound
-                  ? '✨ Match signal synchronized!'
-                  : (errorMessage || SEARCH_STATUS_MESSAGES[searchStatusIndex])}
-              </span>
-            </motion.div>
-          </AnimatePresence>
-        </div>
-
-        {/* 5, 6 & 7. HERO LIVE MATCHMAKING RADAR */}
-        <div className="relative flex flex-col items-center justify-center">
-          {/* Radar Scanner Container */}
-          <div className="relative w-[218px] h-[218px] sm:w-[234px] sm:h-[234px] flex items-center justify-center">
-            {/* 5 Thin Concentric Radar Rings */}
-            <div className="absolute inset-0 rounded-full border border-[#894EFF]/25 bg-[#170924]/75 backdrop-blur-xs shadow-[0_0_40px_rgba(137,78,255,0.22)]" />
-            <div className="absolute w-[82%] h-[82%] rounded-full border border-[#894EFF]/18" />
-            <div className="absolute w-[64%] h-[64%] rounded-full border border-[#894EFF]/22" />
-            <div className="absolute w-[46%] h-[46%] rounded-full border border-[#894EFF]/28" />
-            <div className="absolute w-[28%] h-[28%] rounded-full border border-[#894EFF]/35" />
-
-            {/* Subtle Radial Axis Grid Lines */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
-              <div className="w-full h-[1px] border-b border-dashed border-white" />
-              <div className="h-full w-[1px] border-r border-dashed border-white absolute" />
-              <div className="w-full h-[1px] border-b border-dashed border-white/60 rotate-45 absolute" />
-              <div className="w-full h-[1px] border-b border-dashed border-white/60 -rotate-45 absolute" />
+              {/* Conical luminous sweep trail */}
+              <div
+                className="w-full h-full rounded-full"
+                style={{
+                  background:
+                    'conic-gradient(from 0deg at 50% 50%, rgba(255, 216, 104, 0.60) 0deg, rgba(240, 42, 138, 0.38) 22deg, rgba(137, 78, 255, 0.22) 58deg, rgba(137, 78, 255, 0.08) 92deg, transparent 112deg, transparent 360deg)',
+                }}
+              />
+              {/* Leading golden sweep line with luminous beam glow */}
+              <div
+                className="absolute top-0 left-1/2 w-[2px] h-1/2 -translate-x-1/2 origin-bottom pointer-events-none"
+                style={{
+                  background: 'linear-gradient(to top, rgba(255, 201, 40, 0.35) 0%, #FFD868 55%, #FFFFFF 100%)',
+                  boxShadow: '0 0 10px rgba(255, 201, 40, 0.85), 0 0 4px #FFFFFF',
+                }}
+              />
             </div>
 
-            {/* Continuous Rotating Radar Sweep Beam with Glowing Leading Edge */}
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ repeat: Infinity, duration: 3.0, ease: "linear" }}
-              className="absolute inset-0 rounded-full pointer-events-none"
-              style={{
-                background:
-                  'conic-gradient(from 0deg, rgba(240, 42, 138, 0.36) 0deg, rgba(137, 78, 255, 0.16) 55deg, transparent 115deg, transparent 360deg)'
-              }}
-            >
-              {/* Glowing Leading Sweep Line */}
-              <div className="w-1/2 h-[1.5px] bg-gradient-to-r from-transparent via-[#FFC928]/85 to-[#FFC928] absolute top-1/2 right-1/2 origin-right shadow-[0_0_8px_#FFC928]" />
-            </motion.div>
-
-            {/* 6. Candidate Signals (1 to 5 dots only, newly randomized every complete sweep) */}
+            {/* DYNAMIC CANDIDATE SIGNALS */}
             <AnimatePresence>
-              {signals.map((sig, idx) => {
-                const isTargetMatch = isMatchFound && idx === 0;
-
+              {candidates.map((pt) => {
                 return (
                   <motion.div
-                    key={sig.id}
-                    initial={{ opacity: 0, scale: 0.3 }}
-                    animate={{
-                      opacity: isTargetMatch ? 1 : [0.4, sig.opacity, 0.4],
-                      scale: isTargetMatch ? 1.6 : [0.85, 1.25, 0.85],
-                    }}
-                    exit={{ opacity: 0, scale: 0.2 }}
-                    transition={{
-                      repeat: isTargetMatch ? 0 : Infinity,
-                      duration: sig.pulseDuration,
-                      delay: sig.pulseDelay,
-                      ease: "easeInOut",
-                    }}
+                    key={pt.id}
+                    className="absolute pointer-events-none flex items-center justify-center -translate-x-1/2 -translate-y-1/2"
                     style={{
-                      left: `${sig.x}%`,
-                      top: `${sig.y}%`,
-                      width: `${sig.size}px`,
-                      height: `${sig.size}px`,
-                      backgroundColor: isTargetMatch ? '#FFC928' : sig.color,
-                      boxShadow: isTargetMatch ? '0 0 16px #FFC928' : `0 0 8px ${sig.glow}`,
+                      left: `${pt.x}%`,
+                      top: `${pt.y}%`,
                     }}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none z-10"
+                    initial={{ opacity: 0, scale: 0.3 }}
+                    animate={
+                      isMatchFound
+                        ? {
+                            left: '50%',
+                            top: '50%',
+                            opacity: [1, 0.7, 0],
+                            scale: [1, 1.2, 0],
+                          }
+                        : { opacity: 1, scale: 1 }
+                    }
+                    exit={{ opacity: 0, scale: 0.3 }}
+                    transition={
+                      isMatchFound
+                        ? { duration: 1.15, ease: [0.16, 1, 0.3, 1] }
+                        : { duration: pt.fadeDuration || 0.45, ease: 'easeInOut' }
+                    }
                   >
-                    {/* Subtle Expanding Signal Pulse Ring */}
-                    <span
-                      style={{ borderColor: isTargetMatch ? '#FFC928' : sig.color }}
-                      className={`absolute -inset-1 rounded-full border opacity-50 ${
-                        isTargetMatch ? 'animate-ping duration-700' : 'animate-ping'
-                      }`}
-                    />
+                    {/* Sonar Signal Waves: Concentric expanding rings */}
+                    {!isMatchFound && (
+                      <>
+                        <div
+                          className="animate-signal-wave"
+                          style={{
+                            borderColor: pt.color,
+                            animationName: 'stringx-signal-wave',
+                            animationDuration: pt.waveDuration,
+                            animationTimingFunction: 'ease-out',
+                            animationIterationCount: 'infinite',
+                            animationDelay: pt.waveDelay,
+                          }}
+                        />
+                        <div
+                          className="animate-signal-wave"
+                          style={{
+                            borderColor: pt.color,
+                            animationName: 'stringx-signal-wave',
+                            animationDuration: pt.waveDuration,
+                            animationTimingFunction: 'ease-out',
+                            animationIterationCount: 'infinite',
+                            animationDelay: pt.waveDelay2,
+                          }}
+                        />
+                      </>
+                    )}
+
+                    {/* Core dot with halo and specular glow */}
+                    <div className="relative flex items-center justify-center pointer-events-none">
+                      <div
+                        className="w-3.5 h-3.5 rounded-full absolute blur-[1.4px] pointer-events-none"
+                        style={{
+                          backgroundColor: pt.color,
+                          opacity: pt.haloOpacity,
+                        }}
+                      />
+                      <div
+                        className={`${SIZES_MAP[pt.size].dot} rounded-full z-10 pointer-events-none relative`}
+                        style={{
+                          background: `radial-gradient(circle at 35% 35%, #FFFFFF 0%, ${pt.color} 70%)`,
+                          boxShadow: `0 0 ${pt.glowBlur}px ${pt.color}99, 0 0 2px rgba(0,0,0,0.6)`,
+                        }}
+                      />
+                    </div>
                   </motion.div>
                 );
               })}
             </AnimatePresence>
 
-            {/* 7. RADAR CENTER ("YOU" Origin Matchmaking Node) */}
-            <div className="relative z-20 flex flex-col items-center">
-              <div className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-[#251436] border-2 border-[#FFC928] shadow-[0_0_16px_rgba(255,201,40,0.7)] flex items-center justify-center overflow-hidden">
-                {profile?.photoUrl ? (
-                  <img src={profile.photoUrl} alt="You" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-xl">🪩</span>
-                )}
-              </div>
-              <motion.div
-                animate={{ scale: [1, 2.3], opacity: [0.55, 0] }}
-                transition={{ repeat: Infinity, duration: 2.5, ease: "easeOut" }}
-                className="absolute inset-0 rounded-full border-2 border-[#FFC928]/60 pointer-events-none"
-              />
-            </div>
-          </div>
+            {/* RADAR CENTER TARGET */}
+            <motion.div
+              className="absolute w-8 h-8 rounded-full border border-[#FFC928]/60 pointer-events-none"
+              animate={{
+                scale: isMatchFound ? [1, 3.2] : [1, 2.6],
+                opacity: isMatchFound ? [0.95, 0] : [0.8, 0],
+              }}
+              transition={{
+                repeat: Infinity,
+                duration: isMatchFound ? 1.4 : 2.2,
+                ease: 'easeOut',
+              }}
+            />
+            <motion.div
+              className="absolute w-8 h-8 rounded-full border border-[#894EFF]/45 pointer-events-none"
+              animate={{
+                scale: isMatchFound ? [1, 3.2] : [1, 2.6],
+                opacity: isMatchFound ? [0.8, 0] : [0.65, 0],
+              }}
+              transition={{
+                repeat: Infinity,
+                duration: isMatchFound ? 1.4 : 2.2,
+                delay: 1.1,
+                ease: 'easeOut',
+              }}
+            />
 
-          {/* 9. REDESIGNED MATCHMAKING PROGRESS (VISUALLY INTEGRATED) */}
-          <div className="w-full max-w-[260px] mt-3">
-            <div className="flex items-center justify-between text-[9.5px] font-mono font-bold text-[#E3E0F5]/60 uppercase tracking-widest mb-1 px-0.5">
-              <span>MATCHMAKING</span>
-              <span className="text-[#FFC928] font-bold">{progress}%</span>
-            </div>
-            <div className="w-full h-[5px] bg-[#1B0B2A] rounded-full overflow-hidden border border-[#894EFF]/30">
-              <motion.div
-                className="h-full bg-gradient-to-r from-[#894EFF] via-[#F02A8A] to-[#FFC928] rounded-full"
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.35, ease: "easeInOut" }}
-              />
-            </div>
-            <p className="text-[11px] font-bold text-[#FFC928] mt-1 text-center h-4">
-              {isMatchFound
-                ? '✨ Match locked! Connecting string…'
-                : (errorMessage
-                    ? 'Trying again…'
-                    : (matchState === 'evaluating'
-                        ? 'Evaluating candidate compatibility…'
-                        : 'Scanning campus for compatible energy…'))}
-            </p>
+            {/* Central golden circular target ring */}
+            <motion.div
+              animate={isMatchFound ? { scale: [1, 1.15, 1] } : {}}
+              transition={{ repeat: Infinity, duration: 1.2 }}
+              title="Central radar focal point"
+              className="relative z-20 w-8 h-8 rounded-full bg-[#180826] border-2 border-[#FFC928] flex items-center justify-center shadow-[0_0_16px_rgba(255,201,40,0.65)]"
+            >
+              {/* Miniature disco ball */}
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" className="shrink-0 pointer-events-none">
+                <circle cx="8" cy="8" r="6.5" fill="#D4CEEB" />
+                <line x1="2" y1="5.5" x2="14" y2="5.5" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <line x1="1.5" y1="8" x2="14.5" y2="8" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <line x1="2" y1="10.5" x2="14" y2="10.5" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <line x1="5.5" y1="2" x2="5.5" y2="14" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <line x1="8" y1="1.5" x2="8" y2="14.5" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <line x1="10.5" y1="2" x2="10.5" y2="14" stroke="#7E77A4" strokeWidth="0.6" strokeDasharray="1.2 1.2" />
+                <circle cx="6" cy="6" r="1.5" fill="#FFFFFF" opacity="0.9" />
+              </svg>
+            </motion.div>
           </div>
         </div>
-      </div>
 
-      {/* 10. REFINED BOTTOM LIVE ACTIVITY STATUS (Human, Poetic & Seamless) */}
-      <div className="shrink-0 pb-1 flex flex-col items-center justify-center relative z-10">
-        {isMatchFound ? (
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#FFC928]/20 border border-[#FFC928]/60 text-xs font-black text-[#FFC928]"
-          >
-            <Sparkles size={14} className="text-[#FFC928] animate-spin" />
-            <span>Connecting to reveal countdown…</span>
-          </motion.div>
-        ) : (
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/5 border border-white/10 text-[11px] font-semibold text-[#E3E0F5]/70 backdrop-blur-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#08A98D] animate-ping" />
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            STATUS AREA: Algorithmic Fluctuating Confidence
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        <div className="shrink-0 w-full max-w-[270px] mx-auto">
+          <div className="flex items-center justify-between mb-1.5 px-0.5">
+            <span className="text-[10px] font-black uppercase text-[#E3E0F5]/50 tracking-widest">
+              MATCHMAKING
+            </span>
+            <span className="text-[13px] font-black text-[#FFC928] tracking-tight tabular-nums">
+              {displayedProgress}%
+            </span>
+          </div>
+
+          {/* Thin progress bar with purple-to-yellow gradient */}
+          <div className="w-full h-1.5 bg-[#180A26] rounded-full overflow-hidden border border-[#894EFF]/20 p-[0.5px]">
+            <motion.div
+              className="h-full rounded-full transition-all duration-300 ease-out"
+              style={{
+                width: `${displayedProgress}%`,
+                background: 'linear-gradient(90deg, #894EFF 0%, #F02A8A 50%, #FFC928 100%)',
+              }}
+            />
+          </div>
+
+          {/* Dynamic status text */}
+          <div className="mt-2.5 flex items-center justify-center min-h-[22px]">
             <AnimatePresence mode="wait">
-              <motion.span
-                key={bottomStatusIndex}
-                initial={{ opacity: 0, y: 2 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -2 }}
-                transition={{ duration: 0.2 }}
+              <motion.div
+                key={isMatchFound ? 'matched' : DYNAMIC_STATUS_MESSAGES[statusIndex]}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.35, ease: 'easeInOut' }}
+                className="flex items-center justify-center gap-2 select-none"
               >
-                {BOTTOM_ACTIVITY_MESSAGES[bottomStatusIndex]}
-              </motion.span>
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    isMatchFound
+                      ? 'bg-[#08A98D] shadow-[0_0_6px_#08A98D]'
+                      : 'bg-[#FFC928] shadow-[0_0_6px_#FFC928] animate-pulse'
+                  }`}
+                />
+                <span className="text-[12px] font-semibold text-[#E3E0F5]/90 tracking-normal">
+                  {isMatchFound ? 'String found ✨' : DYNAMIC_STATUS_MESSAGES[statusIndex]}
+                </span>
+              </motion.div>
             </AnimatePresence>
           </div>
-        )}
-      </div>
+        </div>
+      </motion.div>
+
+      {/* Symmetrical bottom spacer */}
+      <div className="w-full h-5 shrink-0" />
     </div>
   );
 };
