@@ -43,6 +43,8 @@
 | `connections` | Participant read | `authenticated` | `auth.uid() IN (user_a_id, user_b_id) OR public.is_admin()` | Participants view connection state. |
 | `user_blocks` | Blocker control | `authenticated` | `auth.uid() = blocker_id OR public.is_admin()` | Students manage their own block lists. |
 | `user_reports` | Reporter submit | `authenticated` | `auth.uid() = reporter_id` | Submissions restricted to caller's identity. |
+| `messages` | Participant read | `authenticated` | `EXISTS (matches: active, revealed, participant, is_pair_blocked = false)` | Reading 1-to-1 match chat. |
+| `messages` | Author insert | `authenticated` | `auth.uid() = sender_user_id AND EXISTS (matches: active, revealed, participant, is_pair_blocked = false)` | Inserting 1-to-1 match messages. |
 
 ---
 
@@ -56,12 +58,19 @@
 | `public.verification` coordinates | **Security Telemetry** | Geolocation (`latitude`, `longitude`, `accuracy_m`) is a secondary security signal; never exposed to peers. |
 | `profiles.weight_kg` | **Private Health Data** | Excluded from student match projections (`v_matched_profiles`, `v_my_matches`). Visible to owner & admins only. |
 | `profiles.instagram_id` | **Milestone Protected** | Held in escrow until the match is revealed. |
+| `public.messages.body` | **Participant Confidential** | 1-to-1 communication isolated to active, revealed, unblocked match participants. |
 
 ---
 
 ## 4. Input Sanitization & Anti-Abuse Measures
 
-1. **Email Allowlist Enforcement:** `public.is_email_allowed()` enforces official `@paruluniversity.ac.in` domain or presence in `public.allowed_auth_emails`.
-2. **Instagram Handle Sanitization:** Stripped of leading `@` symbols and validated against handle regex `/^[a-zA-Z0-9._]+$/`.
-3. **Face Verification Stability Gate:** Local Pico cascade geometry tracking enforces 1.25s continuous stability before shutter capture.
-4. **Account Deletion Archival:** `public.delete_user_account()` RPC safely archives profile to `public.deleted_accounts` for 30-day compliance before cascading deletion across `auth.users`.
+1. **Email Validation & Allowlist Architecture:**
+   - Database gatekeeper: `public.is_email_allowed(p_email)`.
+   - **PU EMAIL RESTRICTION: TEMPORARILY PAUSED:** The institutional domain check has been temporarily paused for testing/product requirements. Currently accepts any standard valid email format (`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`) without domain restriction.
+   - Triggers (`handle_new_user`, `handle_auth_user_email_sync`) and format validation remain 100% active.
+2. **Bi-Directional Block Exclusion (`public.is_pair_blocked`):**
+   - Evaluates block status bidirectionally under `SECURITY DEFINER` privileges.
+   - Enforces a caller participant guard (`auth.uid() = p_user_a OR auth.uid() = p_user_b`), preventing third-party block probing via RPC.
+3. **Instagram Handle Sanitization:** Stripped of leading `@` symbols and validated against handle regex `/^[a-zA-Z0-9._]+$/`.
+4. **Face Verification Stability Gate:** Local Pico cascade geometry tracking enforces 1.25s continuous stability before shutter capture.
+5. **Account Deletion Archival:** `public.delete_user_account()` RPC safely archives profile to `public.deleted_accounts` for 30-day compliance before cascading deletion across `auth.users`.

@@ -35,12 +35,14 @@ flowchart TD
         StorageService["storageService"]
         EventService["eventService"]
         MatchmakingService["matchmakingService"]
+        MessagingService["messagingService"]
     end
 
     subgraph Infra_Layer ["4. Infrastructure & Data Layer"]
         SupaClient["Supabase Client Singleton (src/lib/supabase/client.ts)"]
-        SupaAuth["Supabase Auth (Google OAuth & Parul University Allowlist)"]
-        PostgreSQL["Supabase PostgreSQL (profiles, verification, events, matches)"]
+        SupaAuth["Supabase Auth (Google OAuth & Allowlist)"]
+        PostgreSQL["Supabase PostgreSQL (profiles, verification, matches, messages)"]
+        SupaRealtime["Supabase Realtime (platform_statistics, messages)"]
         SupaStorage["Supabase Storage (profile-photos, verifications, event-assets)"]
         LocalFallback["Offline / Mock LocalStorage Fallback"]
     end
@@ -85,7 +87,8 @@ flowchart TD
   - `onboardingService.ts`: Validates steps and manages transient draft persistence.
   - `storageService.ts`: Uploads media to Supabase Storage (`profile-photos`, `verifications`) and handles base64 data URLs.
   - `eventService.ts`: Queries active campus events, evaluates database registration truth, and persists questionnaire vibe answers.
-  - `matchmakingService.ts`: Queries active pairings (`v_my_matches`), subscribes to real-time match events, and provides partner compatibility insights.
+  - `matchmakingService.ts`: Queries active pairings (`v_my_matches`), evaluates connection reveal flags, subscribes to real-time match events, and provides partner compatibility insights.
+  - `messagingService.ts`: Fetches chronological message history (`public.messages`), transmits new messages, and subscribes to realtime channel `messages:${matchId}`.
 - **Why It Exists:** Decouples the application from Supabase. If the backend switches from Supabase to another persistence engine, only the service layer needs modification; the UI remains 100% untouched.
 
 ### Layer 4: Infrastructure & Client Layer (`src/lib/supabase/`)

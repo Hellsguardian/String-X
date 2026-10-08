@@ -37,7 +37,7 @@ export interface ServiceError {
 1. `signInWithGoogle(): Promise<ServiceResult<{ url?: string }>>`
    - **Behavior:** Dispatches Supabase Google OAuth sign-in flow with redirect options.
 2. `isEmailPermitted(email: string): Promise<boolean>`
-   - **Behavior:** Checks official Parul University regex pattern (`^[0-9]+@paruluniversity\.ac\.in$`) or queries `public.allowed_auth_emails` allowlist.
+   - **Behavior:** Evaluates email address validity. **PU EMAIL RESTRICTION: TEMPORARILY PAUSED.** Currently validates any standard email format (`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`) without enforcing the `@paruluniversity.ac.in` domain.
 3. `getSession(): Promise<ServiceResult<{ user: User | null; session: Session | null }>>`
    - **Behavior:** Retrieves the active cached session via `supabase.auth.getSession()`.
 4. `signOut(): Promise<ServiceResult<void>>`
@@ -55,6 +55,7 @@ export interface ServiceError {
 - **File:** `src/services/profileService.ts`
 - **Responsibility:** Reading and persisting student profiles, mapping between database rows and frontend entities, photo submissions, lookup resolution, and computing completion milestones.
 - **Supabase Resources:** Tables `public.profiles`, `public.profile_photos`, `public.verification`, `public.universities`, `public.hostels`, `public.courses`, `public.interests`.
+- **Security Boundary:** `getProfile(userId)` can only be called for the authenticated user themselves (`auth.uid() = id`). Querying another user's profile is denied by `public.profiles` RLS. For revealed partner identity on Page 24, the application queries the secure database projection view `public.v_matched_profiles`.
 
 #### Public Functions:
 1. `getProfile(userId: string): Promise<ServiceResult<UserProfile>>`
@@ -133,16 +134,31 @@ export interface ServiceError {
 ### 2.6 `matchmakingService`
 - **File:** `src/services/matchmakingService.ts`
 - **Responsibility:** Pair compatibility verification, active match polling, real-time subscription, and reveal state.
-- **Supabase Resources:** View `public.v_my_matches`, Table `public.matches`.
+- **Supabase Resources:** View `public.v_my_matches`, Table `public.matches`, Table `public.connections`.
 
 #### Public Functions:
-1. `checkActiveMatch(userId: string, eventId?: string): Promise<ServiceResult<ActiveMatchResult | null>>`
-   - **Behavior:** Queries `public.v_my_matches` and `public.matches` for an active pairing (`status = 'active'`).
+1. `checkActiveMatch(userId?: string): Promise<ServiceResult<ActiveMatchResult | null>>`
+   - **Behavior:** Queries `public.v_my_matches` and `public.matches` for an active pairing (`status = 'active'`). Resolves pair-level reveal status by querying `public.connections` for `user_a_revealed` and `user_b_revealed`. Sets `isRevealed = true` if and only if **BOTH** connection flags are `true`.
 2. `subscribeToMatches(userId: string, onMatchUpdate: (match: any) => void): () => void`
    - **Behavior:** Establishes Supabase Realtime channel subscription listening for PostgreSQL updates to user's match rows.
 3. `getMatchesForEvent(eventId: string): Promise<ServiceResult<EventMatch[]>>`
    - **Behavior:** Returns candidate matches with compatibility scores and shared highlights.
 4. `getSneakPeekProfile(): typeof SAMPLE_MATCH_PROFILE`
-   - **Behavior:** Returns demo match profile for reveal countdown sneak peeks.
+   - **Behavior:** Returns demo match profile for reveal countdown sneak peeks (not used for real revealed matches).
 5. `sendWave(matchId: string): Promise<ServiceResult<{ success: boolean; message: string }>>`
    - **Behavior:** Sends a wave to a potential partner.
+
+---
+
+### 2.7 `messagingService`
+- **File:** `src/services/messagingService.ts`
+- **Responsibility:** Direct 1-to-1 realtime text chat between revealed match participants.
+- **Supabase Resources:** Table `public.messages`, Publication `supabase_realtime`, Helper function `public.is_pair_blocked()`.
+
+#### Public Functions:
+1. `getMessages(matchId: string): Promise<ServiceResult<MessageItem[]>>`
+   - **Behavior:** Fetches up to 100 historical messages for `matchId` in chronological order (`created_at ASC`). Gated by RLS (requires caller participation, active revealed match, and no block).
+2. `sendMessage(matchId: string, senderUserId: string, body: string): Promise<ServiceResult<MessageItem>>`
+   - **Behavior:** Inserts new message into `public.messages`. Validates non-empty trimmed body and 2,000 character maximum. Enforces `auth.uid() = sender_user_id` via RLS.
+3. `subscribeToMessages(matchId: string, onNewMessage: MessageListener, onError?: (err: any) => void): () => void`
+   - **Behavior:** Connects to Supabase Realtime channel `messages:${matchId}` listening for `INSERT` events filtered by `match_id=eq.${matchId}`. Returns cleanup unsubscription function calling `supabase.removeChannel(channel)`.

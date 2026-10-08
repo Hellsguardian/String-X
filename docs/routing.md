@@ -51,14 +51,16 @@ In STRING X:
 | `onboarding` (step 16)| `20` | `NavratriStep08Prompt2` | Vibe check personality prompt | Authenticated | Step 15 (`19`) | Step 17 (`21`) |
 | `onboarding` (step 17)| `21` | `NavratriStep09Instagram`| Social handle for partner reveal | Authenticated | Step 16 (`20`) | `success` (`22`) |
 | `success` | `22` | `SubmissionSuccessPage` | Radar signal animation scanning campus | Authenticated + Registered | `home` | `countdown` (`23`) |
-| `countdown` | `23` | `CountdownPage` | Live festival countdown & reveal modal | Authenticated + Registered | `home` | `profile` (`24`) |
-| `profile` | `24` | `ProfileSettingsPage` | User card, settings, and sign-out | Authenticated | `home` (`12`) | `landing` (`01`) on logout |
+| `countdown` | `23` | `CountdownPage` | Live festival countdown & reveal gatekeeper | Authenticated + Registered | `home` | `match-reveal` (`24`) or `profile` |
+| `match-reveal` | `24` | `MatchRevealPage` | "It's a Match" real partner reveal & dual frame | Authenticated + Revealed | `countdown` (`23`) | `messages` (`25`) |
+| `messages` | `25` | `MessagingPage` | Direct 1-to-1 realtime match chat | Authenticated + Revealed | `match-reveal` (`24`) | None / Back to `match-reveal` |
+| `profile` | `24` (Rail) | `ProfileSettingsPage` | User card, settings, and sign-out | Authenticated | `home` (`12`) | `landing` (`01`) on logout |
 
 ---
 
-## 3. Authoritative "Find My Match" State Machine
+## 3. Authoritative "Find My Match" & Match Status State Machine
 
-A student must **NEVER** reach the waiting radar (`AppRoute.SUCCESS`) or countdown (`AppRoute.COUNTDOWN`) simply because browser storage contains stale mock data. The authoritative event registration status is queried directly from Supabase:
+A student must **NEVER** reach the waiting radar (`AppRoute.SUCCESS`), countdown (`AppRoute.COUNTDOWN`), or match reveal (`AppRoute.MATCH_REVEAL`) simply because browser storage contains stale mock data. The authoritative event registration and match status are queried directly from Supabase:
 
 ```
                             Student clicks "Find My Match"
@@ -77,8 +79,25 @@ A student must **NEVER** reach the waiting radar (`AppRoute.SUCCESS`) or countdo
                                           ↓
                          Is matched_with assigned?
                         ├── NO  (NULL)     → Route to Page 22 (Radar / AppRoute.SUCCESS)
-                        └── YES (Assigned) → Route to Page 23 (Countdown / AppRoute.COUNTDOWN)
+                        └── YES (Assigned)
+                                          ↓
+                         Query matchmakingService.checkActiveMatch()
+                         Evaluate: connections.user_a_revealed AND user_b_revealed
+                        ├── BOTH TRUE     → Route to Page 24 (MatchRevealPage / AppRoute.MATCH_REVEAL)
+                        └── NOT BOTH TRUE → Route to Page 23 (CountdownPage / AppRoute.COUNTDOWN)
 ```
+
+### Direct Page 23 Auto-Forwarding
+When a user is viewing **Page 23 (`CountdownPage`)**, the component checks `matchmakingService.checkActiveMatch(currentUserId)` on mount. If the administrator has marked both `user_a_revealed` and `user_b_revealed` as `true` in `public.connections`:
+```
+CountdownPage Mount ──► checkActiveMatch() ──► isRevealed === true ──► onRevealMatch() ──► AppRoute.MATCH_REVEAL
+```
+The user is automatically forwarded to **Page 24 (`MatchRevealPage`)** without needing manual refresh or backtracking.
+
+### Page 24 $\to$ Page 25 Handoff
+From **Page 24 (`MatchRevealPage`)**:
+- Tapping **"Send a Message"** invokes `onSendMessage()`, triggering navigation to **Page 25 (`AppRoute.MESSAGES` / `MessagingPage`)**.
+- From **Page 25 (`MessagingPage`)**, tapping the back button cleanly returns to **Page 24 (`AppRoute.MATCH_REVEAL`)**.
 
 ---
 

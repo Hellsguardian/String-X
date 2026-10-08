@@ -42,6 +42,7 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile>(INITIAL_USER_PROFILE);
   const [onboardingStep, setOnboardingStep] = useState(initialNav.onboardingStep);
   const [isShowingVerifiedTransition, setIsShowingVerifiedTransition] = useState(false);
+  const [showRegistrationCelebration, setShowRegistrationCelebration] = useState(false);
 
   const navigate = (
     targetScreen: ScreenState,
@@ -185,6 +186,7 @@ export default function App() {
       const targetStep = stepIndex - 4; // Step 13 -> onboarding step 9 (Partner Preference), Step 20 -> onboarding step 16 (Prompt 02), Step 21 -> onboarding step 17 (Instagram ID)
       navigate('onboarding', targetStep);
     } else if (stepIndex === 22) {
+      setShowRegistrationCelebration(true);
       navigate('success', 0);
     } else if (stepIndex === 23) {
       navigate('countdown', 0);
@@ -201,22 +203,22 @@ export default function App() {
     <>
       <DeviceFrame onQuickFill={handleQuickFill} onJumpToCombinedScreen={handleJumpToCombined}>
         {/* Verification Celebration Transition Overlay / Screen */}
-        {isShowingVerifiedTransition ? (
-          <FaceVerifiedTransition
-            onComplete={() => {
-              setIsShowingVerifiedTransition(false);
-              navigate('home', 0);
-            }}
-          />
-        ) : (
-          <>
-            {screen === 'landing' && (
-              <LandingScreen
-                onStart={handleGoogleSignIn}
-                onGoogleSignIn={handleGoogleSignIn}
-                onViewCountdown={() => navigate('countdown', 0)}
-              />
-            )}
+          {isShowingVerifiedTransition ? (
+            <FaceVerifiedTransition
+              onComplete={() => {
+                setIsShowingVerifiedTransition(false);
+                navigate('home', 0);
+              }}
+            />
+          ) : (
+            <>
+              {screen === 'landing' && (
+                <LandingScreen
+                  onStart={handleGoogleSignIn}
+                  onGoogleSignIn={handleGoogleSignIn}
+                  onViewCountdown={() => navigate('countdown', 0)}
+                />
+              )}
 
             {screen === 'phone-signup' && (
               <PhoneNumberSignUpScreen
@@ -236,7 +238,15 @@ export default function App() {
                 onStepChange={handleOnboardingStepChange}
                 profile={profile}
                 onUpdateProfile={handleUpdateProfile}
-                onComplete={() => navigate('success', 0)}
+                onComplete={() => {
+                  setShowRegistrationCelebration(true);
+                  try {
+                    sessionStorage.setItem('stringx_show_registration_celebration', 'true');
+                  } catch {
+                    // ignore
+                  }
+                  navigate('success', 0);
+                }}
                 onBackToLanding={handleBackToLanding}
                 onFaceVerifiedComplete={() => {
                   setIsShowingVerifiedTransition(true);
@@ -273,6 +283,8 @@ export default function App() {
               <SubmissionSuccessScreen
                 profile={profile}
                 collegeName={profile.collegeName}
+                showRegistrationCelebration={showRegistrationCelebration}
+                onCelebrationComplete={() => setShowRegistrationCelebration(false)}
                 onBack={() => navigate('home', 0)}
                 onContinueToCountdown={() => navigate('match-reveal', 0)}
               />

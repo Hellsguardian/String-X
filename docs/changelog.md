@@ -4,6 +4,40 @@ All notable changes and architectural refactorings for STRING X are documented i
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- **Messaging V1 Subsystem (`supabase/migrations/20261006000001_messages_schema.sql`):**
+  - Created `public.messages` table keyed to canonical `public.matches(id)`, with foreign key `sender_user_id` referencing `public.profiles(id)`, body text (1–2000 chars, non-whitespace, full Unicode/emojis), and timestamps.
+  - Added performance index `idx_messages_match_created_at` on `(match_id, created_at ASC)`.
+  - Added `public.messages` to `supabase_realtime` publication for live `INSERT` event streaming per match.
+  - Built frontend service `src/services/messagingService.ts` (`getMessages`, `sendMessage`, `subscribeToMessages`).
+  - Implemented domain typing in `src/types/messaging.ts` (`MessageItem`, `MessageListener`) and Supabase schema types in `src/lib/supabase/types.ts`.
+  - Connected `MessagingPage.tsx` and `MessagingScreen.tsx` with duplicate message prevention, auto-scroll, in-flight send indicators, inline error banners, and suggested icebreaker chips.
+- **Messaging Security & Bi-Directional Block Exclusion:**
+  - Implemented `public.is_pair_blocked(p_user_a, p_user_b)` `SECURITY DEFINER` function with participant caller guard to resolve mutual blocks across `public.user_blocks` without leaking block state to third parties.
+  - Enforced strict Row Level Security (RLS) on `public.messages`: authenticated match participants can SELECT and INSERT messages only when the match is active, revealed via `public.is_match_revealed()`, and not blocked via `public.is_pair_blocked()`. Denied `UPDATE` and `DELETE`.
+
+### Changed
+- **Temporary Pause of Parul University Email Domain Restriction:**
+  - Temporarily updated `public.is_email_allowed()` and frontend `authService.isEmailPermitted()` to accept any valid email format (`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`) regardless of domain.
+  - Preserved all database triggers (`handle_new_user`, `handle_auth_user_email_sync`, `on_auth_user_created`, `on_auth_user_email_updated`) and profile identity schemas.
+  - Documented complete operational audit and restoration protocol in `docs/STRINGX_PU_EMAIL_RESTRICTION.md`.
+
+### Fixed
+- **Match Reveal Navigation Gate (Frontend Fix):**
+  - Resolved navigation bug where revealed matches routed to Countdown timer (`AppRoute.COUNTDOWN`) instead of Match Reveal (`AppRoute.MATCH_REVEAL`).
+  - Updated `matchmakingService.checkActiveMatch()` to query `public.connections` for `user_a_revealed` and `user_b_revealed`. Sets `isRevealed = true` if and only if both flags are true.
+  - Updated `AppShell.tsx` to branch on `isRevealed`, rendering `AppRoute.MATCH_REVEAL` when true.
+  - Updated `CountdownPage.tsx` with automatic forward to `AppRoute.MATCH_REVEAL` if reveal state becomes true while waiting.
+- **Page 24 Match Reveal Real Profile Binding (Frontend Fix):**
+  - Fixed issue where Page 24 partner frame displayed mock profile (`SAMPLE_MATCH_PROFILE`) or empty fallback data.
+  - Corrected data source in `MatchRevealPage.tsx` to query secure database projection view `public.v_matched_profiles` (`id = activeMatch.partnerId`) rather than `profileService.getProfile(partnerId)` (which was blocked by `public.profiles` self-access RLS).
+  - Resolved real partner primary photo URL from `profile-photos` Supabase Storage bucket.
+  - Bound current user card directly to authenticated profile from `useAuth().profile`.
+
+---
+
 ## [2.11.0] - 2026-10-05
 
 ### Added

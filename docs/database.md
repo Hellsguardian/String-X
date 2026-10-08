@@ -194,8 +194,9 @@ Introduced in migration `20261002000001`:
    - `email TEXT PRIMARY KEY`, constrained by `CHECK (email = lower(trim(email)))`.
    - Protected by RLS: restricted exclusively to administrators (`public.is_admin()`).
 2. **Reusable Authorization & Extraction Functions:**
-   - `public.is_email_allowed(p_email TEXT)`: Validates official Parul University student pattern (`^[0-9]+@paruluniversity\.ac\.in$`) or active presence in `allowed_auth_emails`.
-   - `public.extract_enrollment_no(p_email TEXT)`: Extracts numeric enrollment ID from the email prefix (returns `NULL` for test/developer emails).
+   - `public.is_email_allowed(p_email TEXT)`: Originally validated official Parul University student pattern (`^[0-9]+@paruluniversity\.ac\.in$`) or active presence in `allowed_auth_emails`.
+   - **PU EMAIL RESTRICTION: TEMPORARILY PAUSED:** The institutional domain check has been temporarily paused for testing/product requirements. Currently accepts any standard valid email format (`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`). Triggers (`handle_new_user`, `handle_auth_user_email_sync`) and format validations remain 100% active.
+   - `public.extract_enrollment_no(p_email TEXT)`: Extracts numeric enrollment ID from the email prefix (returns `NULL` for generic or non-PU emails; `enrollment_no` is nullable with partial unique index).
 3. **Authoritative Profile Identity Fields:**
    - `profiles.email TEXT NOT NULL UNIQUE`
    - `profiles.enrollment_no TEXT UNIQUE NULL` (partial unique index `idx_uq_profiles_enrollment_no`)
@@ -212,6 +213,23 @@ Introduced in migration `20261003000001`:
    - Attached to `public.profiles` on `AFTER INSERT OR DELETE` to atomically increment and decrement `total_profiles`.
 3. **Realtime Broadcast:**
    - Table registered in `supabase_realtime` publication, allowing anonymous and authenticated landing page visitors to subscribe to live platform user counts with zero PII exposure.
+
+### 2.14 Direct 1-to-1 Messaging Subsystem (V1)
+Introduced in migration `20261006000001_messages_schema.sql`:
+1. **Table Structure (`public.messages`):**
+   - `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+   - `match_id UUID NOT NULL REFERENCES public.matches(id) ON DELETE CASCADE`
+   - `sender_user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE`
+   - `body TEXT NOT NULL` with `CHECK (char_length(trim(body)) > 0 AND char_length(body) <= 2000)`
+   - `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`
+2. **Performance Index:**
+   - `idx_messages_match_created_at ON public.messages (match_id, created_at ASC)`
+3. **Security Architecture & Bidirectional Block Exclusion:**
+   - Direct 1:1 access restricted to authenticated match participants where `status = 'active'`, `public.is_match_revealed(match_id) = true`, and `public.is_pair_blocked(user_a, user_b) = false`.
+   - `public.is_pair_blocked()` evaluates block status bidirectionally under `SECURITY DEFINER` privileges with participant scope guard (`auth.uid() = p_user_a OR auth.uid() = p_user_b`).
+   - Mutations: normal users possess `SELECT` and `INSERT` grants only (`UPDATE` and `DELETE` revoked).
+4. **Realtime Broadcast:**
+   - `public.messages` registered in `supabase_realtime` publication for `INSERT` event streaming per match.
 
 ---
 
@@ -278,6 +296,10 @@ Introduced in migration `20261003000001`:
 ├───────────────────────┼───────────────────┼────────────────────────────┤
 │ user_reports:         │ Moderator /       │ REVOKE UPDATE, DELETE;     │
 │ status, notes, resolved│ Admin Role       │ Normal users INSERT only.  │
+├───────────────────────┼───────────────────┼────────────────────────────┤
+│ messages:             │ Authenticated     │ SELECT and INSERT only.    │
+│ id, match_id, sender, │ Participants      │ UPDATE and DELETE revoked. │
+│ body, created_at      │ (Unblocked/Active)│ Gated by reveal + blocks.  │
 └───────────────────────┴───────────────────┴────────────────────────────┘
 ```
 

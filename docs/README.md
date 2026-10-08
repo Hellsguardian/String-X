@@ -17,10 +17,11 @@ STRING X is a high-energy, campus-focused social matchmaking application designe
 - **Effects:** Canvas Confetti (`canvas-confetti`)
 - **Icons:** Lucide React (`lucide-react`)
 - **Backend & Database:** Supabase (`@supabase/supabase-js`)
-  - **Auth:** Google OAuth with `@paruluniversity.ac.in` domain restriction & `allowed_auth_emails` allowlist bypass
-  - **Database:** Supabase PostgreSQL with Row Level Security (RLS) & unified verification state engine
+- **Backend & Database:** Supabase (`@supabase/supabase-js`)
+  - **Auth:** Google OAuth with campus identity, enrollment number extraction, and `allowed_auth_emails` allowlist bypass *(Note: University domain restriction is TEMPORARILY PAUSED)*
+  - **Database:** Supabase PostgreSQL with Row Level Security (RLS) & unified verification state engine (19 physical tables + 3 projection views)
   - **Storage:** Supabase Storage (`profile-photos` bucket)
-  - **Realtime:** Realtime platform statistics publication (`platform_statistics`)
+  - **Realtime:** Realtime platform statistics publication (`platform_statistics`) and 1-to-1 active match messaging channel (`messages:${matchId}`)
 
 ---
 
@@ -34,12 +35,14 @@ flowchart LR
     D --> E[Screen 12: STRING X Home]
     E --> F[Screens 13–21: Navratri Registration]
     F --> G[Screen 22: Radar Scanner]
-    G --> H[Screen 23: Countdown & Reveal]
-    E -.-> I[Screen 24: Profile & Settings]
+    G --> H[Screen 23: Countdown & Lock]
+    H --> I[Screen 24: Match Reveal]
+    I --> J[Screen 25: Direct Messaging]
+    E -.-> K[Screen 26: Profile & Settings]
 ```
 
 1. **Landing (`/`):** Full-bleed festival illustration, core branding, Google OAuth entry CTA.
-2. **Google Sign-In (`/auth`):** Supabase Google OAuth authenticating against university domain (`@paruluniversity.ac.in`) with enrollment number extraction or developer allowlist bypass (`allowed_auth_emails`). *(Historical note: Prototype used Phone OTP before Google OAuth was established).*
+2. **Google Sign-In (`/auth`):** Supabase Google OAuth authenticating campus students with enrollment number extraction or developer allowlist bypass (`allowed_auth_emails`). *(Note: PU email restriction is TEMPORARILY PAUSED; historical prototype used Phone OTP).*
 3. **Core Profile Onboarding (`/onboarding` Steps 0–8):**
    - Step 01: Name & Gender
    - Step 02: Campus & Hostel Selection
@@ -63,8 +66,10 @@ flowchart LR
    - Step 08: Personality Prompt 02 (Energy & Chaos)
    - Step 09: Instagram Handle Input
 7. **Radar Scanner (`/match/scanning`):** Procedural candidate signal generator and campus search radar.
-8. **Countdown & Sneak Peek Reveal (`/match/countdown`):** Live days/hours/minutes countdown to partner reveal with sneak peek partner modal.
-9. **Profile & Settings (`/profile`):** Campus status, profile card, notifications, privacy, account deletion, and sign-out modal.
+8. **Countdown & Lock Screen (`/match/countdown`):** Live days/hours/minutes countdown ticker. Evaluates active match reveal flags (`connections.user_a_revealed` & `connections.user_b_revealed`) and automatically transitions to Match Reveal when both flags become true.
+9. **Match Reveal (`/match/reveal`):** Dual-frame "It's a Match" screen displaying real authenticated user profile and real matched partner resolved securely through `v_matched_profiles` and storage buckets.
+10. **Direct 1-to-1 Messaging (`/match/messages`):** Real-time festival chat for revealed matches backed by `public.messages`, mutual block enforcement (`is_pair_blocked()`), and Supabase Realtime subscriptions.
+11. **Profile & Settings (`/profile`):** Campus status, profile card, notifications, privacy, account deletion, and sign-out modal.
 
 ---
 
@@ -72,12 +77,12 @@ flowchart LR
 
 ```
 string-x/
-├── docs/                        # Complete technical documentation (10 synchronized docs)
+├── docs/                        # Complete technical documentation (authoritative documentation suite)
 ├── public/                      # Static assets & Pico ML models (/models/facefinder)
 ├── src/
 │   ├── app/                     # Application shell, router, and composite providers
 │   ├── components/              # UI primitives, inputs, illustrations, and dev tools
-│   │   ├── dev/                 # DevScreenRail (desktop 24-screen jump rail)
+│   │   ├── dev/                 # DevScreenRail (desktop 25-screen jump rail)
 │   │   ├── events/              # Event discovery feeds and questionnaire layouts
 │   │   ├── illustrations/       # Badges, SVG artwork, and logo components
 │   │   ├── inputs/              # 20 specialized custom interactive inputs
@@ -93,7 +98,7 @@ string-x/
 │   ├── types/                   # Centralized domain and API type definitions
 │   └── utils/                   # Pico face detector and geometry validation
 ├── supabase/
-│   └── migrations/              # 16-migration sequential PostgreSQL database schema
+│   └── migrations/              # 17-migration sequential PostgreSQL database schema
 ├── ARCHITECTURE_REFACTOR_PLAN.md   # Initial refactor plan
 ├── ARCHITECTURE_REFACTOR_REPORT.md # Refactor migration report
 ├── CONTRIBUTING.md              # Engineering guidelines and pull request standards
@@ -128,26 +133,27 @@ npm run build
 | Topic | Document | Description |
 |---|---|---|
 | **Architecture** | [architecture.md](architecture.md) | System design, uni-directional data flow, and layers |
-| **Database Specification** | [database.md](database.md) | PostgreSQL schema, tables, types, RPCs, and trigger sync |
-| **Database ERD** | [database-erd.md](database-erd.md) | Entity relationship diagrams and physical table schemas |
-| **Database Security** | [database-security.md](database-security.md) | Row Level Security (RLS) policies and column-level security |
-| **Migrations Manifest** | [migrations.md](migrations.md) | 16-migration sequence, rollback guidance, and execution order |
-| **Authentication** | [authentication.md](authentication.md) | Google OAuth, Parul University allowlist, and session management |
-| **Routing** | [routing.md](routing.md) | Route map, DevScreenRail indexing, and navigation logic |
+| **Database Specification** | [database.md](database.md) | PostgreSQL schema, tables, types, RPCs, messaging, and trigger sync |
+| **Database ERD** | [database-erd.md](database-erd.md) | Entity relationship diagrams and physical table schemas (19 tables + 3 views) |
+| **Database Security** | [database-security.md](database-security.md) | Row Level Security (RLS) policies, security definer helpers, and column-level security |
+| **Migrations Manifest** | [migrations.md](migrations.md) | 17-migration sequence, rollback guidance, execution order, and DB vs Frontend distinction |
+| **Authentication** | [authentication.md](authentication.md) | Google OAuth, email allowlist, temporary PU pause status, and session management |
+| **Routing** | [routing.md](routing.md) | Route map, DevScreenRail indexing, match reveal transitions, and navigation logic |
 | **Onboarding** | [onboarding.md](onboarding.md) | Detailed specs for Screens 03–11 and 13–21 |
-| **Matchmaking** | [matchmaking.md](matchmaking.md) | Vibe scoring, verification gate, partner preferences, and reveal |
-| **Design System** | [design.md](design.md) | Neo-brutalist festive aesthetics, colors, typography, and badges |
-| **Components** | [components.md](components.md) | Catalogue of UI primitives and custom inputs |
-| **Services** | [services.md](services.md) | Service layer API specifications and error handling |
+| **Matchmaking** | [matchmaking.md](matchmaking.md) | Vibe scoring, verification gate, pair-level reveal flags, and partner resolution |
+| **Messaging** | [messaging.md](messaging.md) | Direct 1-to-1 chat, `public.messages`, pair-block helper, RLS, and Realtime sync |
+| **Design System** | [design.md](design.md) | Neo-brutalist festive aesthetics, colors, typography, badges, Screen 24, and Screen 25 |
+| **Components** | [components.md](components.md) | Catalogue of UI primitives, interactive inputs, and screen adapters |
+| **Services** | [services.md](services.md) | Service layer API specifications, messagingService, and error handling |
 | **State Management**| [state-management.md](state-management.md) | AuthContext, OnboardingContext, and local UI state |
 | **Storage** | [storage.md](storage.md) | Supabase Storage bucket setup, paths, and photo handling |
-| **Security** | [security.md](security.md) | RLS, credential isolation, and input sanitization |
+| **Security** | [security.md](security.md) | RLS, credential isolation, pair block security, and input sanitization |
 | **Environment** | [environment.md](environment.md) | Environment variable definitions and fallbacks |
 | **Development** | [development.md](development.md) | Local development workflow, scripts, and debugging |
 | **Deployment** | [deployment.md](deployment.md) | Production builds, preview hosting, and Cloud Run |
 | **Testing** | [testing.md](testing.md) | Quality assurance, browser testing, and checklists |
 | **Troubleshooting** | [troubleshooting.md](troubleshooting.md) | Common errors, root causes, and resolutions |
 | **Internal API** | [api.md](api.md) | Service layer function signatures and payloads |
-| **Decisions (ADRs)**| [decisions.md](decisions.md) | Architecture Decision Records (ADR 01 through ADR 20) |
-| **Changelog** | [changelog.md](changelog.md) | History of releases through v2.11.0 |
+| **Decisions (ADRs)**| [decisions.md](decisions.md) | Architecture Decision Records (ADR 01 through ADR 25) |
+| **Changelog** | [changelog.md](changelog.md) | History of releases through v2.11.0 + Unreleased (Messaging V1, Reveal Fixes) |
 | **Audit** | [documentation-audit.md](documentation-audit.md) | Coverage, verified paths, and known technical debt |

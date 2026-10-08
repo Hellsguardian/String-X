@@ -15,8 +15,8 @@ Built with **React 19**, **TypeScript**, **Vite 8**, **Tailwind CSS v4**, and **
   - *Core Student Profile* (Screens 03–11): Identity, campus, hostel, age, photo upload, height ruler, weight dial, home state, college year, department course, and face verification.
   - *Festival Vibe Registration* (Screens 13–21): Partner preferences, garba energy, evening spots, personality prompts, and Instagram connection.
 - **Campus Radar Scanner & Real-Time Sync:** Procedural candidate search radar gated by verification standing and paired with Supabase Realtime platform counters.
-- **Synchronized Partner Reveal:** Days/hours/minutes countdown ticker with symmetric, pair-level match reveal.
-- **Developer Screen Rail:** Desktop sidebar tool allowing one-click navigation across all 24 application screens during development and QA.
+- **Synchronized Partner Reveal & Messaging:** Days/hours/minutes countdown ticker with pair-level match reveal gates (`connections.user_a_revealed` & `user_b_revealed`), dual-profile reveal screen, and direct 1-to-1 festival messaging (`messages:${matchId}`) with mutual block protection.
+- **Developer Screen Rail:** Desktop sidebar tool allowing one-click navigation across all 25 application screens during development and QA.
 
 ---
 
@@ -30,7 +30,7 @@ Built with **React 19**, **TypeScript**, **Vite 8**, **Tailwind CSS v4**, and **
 | **Animation** | [Motion](https://motion.dev/) (Framer Motion v12) |
 | **Icons & Effects** | [Lucide React](https://lucide.dev/) & [Canvas Confetti](https://www.npmjs.com/package/canvas-confetti) |
 | **Computer Vision** | [Pico.js](https://github.com/nenadmarkus/picojs) local face cascade detector |
-| **Backend** | [Supabase](https://supabase.com/) (Google OAuth, PostgreSQL 15+, Storage, Realtime) |
+| **Backend** | [Supabase](https://supabase.com/) (Google OAuth, PostgreSQL 15+, Storage, Realtime `platform_statistics` & `messages`) |
 
 ---
 
@@ -94,16 +94,17 @@ Comprehensive technical documentation is located in the [`docs/`](docs/) directo
 
 - 🏗️ **Architecture:** [docs/architecture.md](docs/architecture.md) — Layer responsibilities, dependency rules, and data flows.
 - 🗄️ **Database:** [docs/database.md](docs/database.md) — PostgreSQL schemas, unified verification, and Row Level Security (RLS) policies.
-- 🗺️ **Database ERD:** [docs/database-erd.md](docs/database-erd.md) — 18-table visual Entity-Relationship Diagram and projection view models.
+- 🗺️ **Database ERD:** [docs/database-erd.md](docs/database-erd.md) — 19-table visual Entity-Relationship Diagram and projection view models.
 - 🛡️ **Database Security:** [docs/database-security.md](docs/database-security.md) — Security tiers, email identity protection, and RLS policy matrix.
-- 🔄 **Migrations:** [docs/migrations.md](docs/migrations.md) — Sequential 16-migration manifest and post-deployment checklist.
-- 🔐 **Authentication:** [docs/authentication.md](docs/authentication.md) — Google OAuth institutional flow, email allowlist, and session management.
+- 🔄 **Migrations:** [docs/migrations.md](docs/migrations.md) — Sequential 17-migration manifest, post-deployment checklist, and DB vs Frontend distinction.
+- 🔐 **Authentication:** [docs/authentication.md](docs/authentication.md) — Google OAuth institutional flow, email allowlist, temporary PU pause status, and session management.
 - 🗺️ **Routing:** [docs/routing.md](docs/routing.md) — Route catalog, semantic keys, and `DevScreenRail` index mapping.
 - 📝 **Onboarding:** [docs/onboarding.md](docs/onboarding.md) — Deep dive into core profile and Navratri registration steps.
 - 💃 **Matchmaking:** [docs/matchmaking.md](docs/matchmaking.md) — Compatibility vectors, verification gating, single-value assignment, and countdown reveal.
+- 💬 **Messaging:** [docs/messaging.md](docs/messaging.md) — Direct 1-to-1 chat, `public.messages`, pair-block helper, RLS, and Realtime sync.
 - 🎨 **Design System:** [docs/design.md](docs/design.md) — Exact HEX color palette, typography, borders, shadows, and status badges.
 - 🧩 **Components:** [docs/components.md](docs/components.md) — Catalogue of UI primitives, interactive inputs, and illustrations.
-- ⚙️ **Services:** [docs/services.md](docs/services.md) — Business logic layer and data access functions.
+- ⚙️ **Services:** [docs/services.md](docs/services.md) — Business logic layer, messagingService, and data access functions.
 - 🔄 **State Management:** [docs/state-management.md](docs/state-management.md) — AuthContext, OnboardingContext, and local UI state.
 - 📦 **Storage:** [docs/storage.md](docs/storage.md) — Supabase Storage bucket setup, paths, and photo handling.
 - 🛡️ **Security:** [docs/security.md](docs/security.md) — RLS policies, credential isolation, and input sanitization.
@@ -113,8 +114,8 @@ Comprehensive technical documentation is located in the [`docs/`](docs/) directo
 - 🧪 **Testing:** [docs/testing.md](docs/testing.md) — Test matrix, type verification, and mobile testing guide.
 - 🩺 **Troubleshooting:** [docs/troubleshooting.md](docs/troubleshooting.md) — Symptoms, root causes, and verified fixes.
 - 📡 **Internal API:** [docs/api.md](docs/api.md) — Service layer function signatures and types.
-- 📋 **ADRs:** [docs/decisions.md](docs/decisions.md) — Architecture Decision Records (ADRs 01–20) for key architectural choices.
-- 📜 **Changelog:** [docs/changelog.md](docs/changelog.md) — Major architectural updates and release history (v1.0.0 through v2.11.0).
+- 📋 **ADRs:** [docs/decisions.md](docs/decisions.md) — Architecture Decision Records (ADRs 01–25) for key architectural choices.
+- 📜 **Changelog:** [docs/changelog.md](docs/changelog.md) — Major architectural updates and release history (v1.0.0 through v2.11.0 + Unreleased).
 - 🤝 **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md) — Pull request guidelines and engineering standards.
 
 ---

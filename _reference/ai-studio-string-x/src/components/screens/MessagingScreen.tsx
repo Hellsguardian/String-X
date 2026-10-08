@@ -1,15 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Send, MoreVertical, Sparkles, Check, CheckCheck } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { UserProfile } from '../../types';
-import { CampusNightChatBackground } from '../illustrations/CampusNightChatBackground';
-
-interface Message {
-  id: string;
-  sender: 'user' | 'partner';
-  text: string;
-  timestamp: string;
-}
+import { SAMPLE_MATCH_PROFILE } from '../../data/mockData';
+import { Page25 } from '../../page25-claude';
+import type {
+  Page25CurrentUser,
+  Page25MatchedUser,
+  Page25Message,
+  Page25MatchContext,
+  Page25SendMeta,
+  Page25QuickReply,
+} from '../../page25-claude';
 
 interface MessagingScreenProps {
   profile: UserProfile;
@@ -21,322 +21,264 @@ interface MessagingScreenProps {
 export const MessagingScreen: React.FC<MessagingScreenProps> = ({
   profile,
   onBack,
-  partnerName = 'Aarohi',
+  partnerName,
   partnerPhoto,
 }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [inputText, setInputText] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const currentUserId = 'user-me';
+  const partnerUserId = 'partner-match';
 
-  // Suggested conversation starters
-  const STARTERS = [
-    'Which Garba night are you going to? 🕺',
-    "What's your favourite Garba song?",
-    'Ready for Navratri? ✨',
-  ];
+  const isUserMale = profile.gender === 'Male';
+  const match = SAMPLE_MATCH_PROFILE;
 
-  // Default partner photo fallback
+  // Resolve partner name consistent with Page 24 match reveal
+  const resolvedPartnerName =
+    partnerName && partnerName !== 'Aarohi'
+      ? partnerName
+      : isUserMale
+      ? 'Aanya'
+      : (match.name ? match.name.split(' ')[0] : 'Arjun');
+
   const resolvedPartnerPhoto =
     partnerPhoto ||
-    (profile.gender === 'Male' ? '/assets/female.png' : '/assets/male.png');
+    (isUserMale
+      ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80'
+      : (match.photoUrl || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=600&q=80'));
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const currentUser: Page25CurrentUser = useMemo(
+    () => ({
+      id: currentUserId,
+      firstName: profile.nickname?.trim() || profile.fullName?.trim()?.split(' ')[0] || 'You',
+      avatarUrl: profile.faceVerificationPhoto || profile.photoUrl || undefined,
+    }),
+    [profile]
+  );
+
+  const matchedUser: Page25MatchedUser = useMemo(
+    () => ({
+      id: partnerUserId,
+      name: resolvedPartnerName,
+      avatarUrl: resolvedPartnerPhoto,
+      isOnline: true,
+      relationshipLabel: 'Your Garba partner',
+    }),
+    [resolvedPartnerName, resolvedPartnerPhoto]
+  );
+
+  const matchContext: Page25MatchContext = useMemo(() => {
+    const rawInterests = profile.interests?.length
+      ? profile.interests
+      : profile.navratriVibes?.length
+      ? profile.navratriVibes
+      : ['Garba', 'Late Night Chai', 'Music'];
+    const sharedInterests = rawInterests
+      .slice(0, 3)
+      .map((item) =>
+        item.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim()
+      );
+
+    return {
+      badge: 'STRINGS ATTACHED · NAVRATRI NIGHT 1',
+      sharedInterests,
+    };
+  }, [profile]);
+
+  const quickReplies: Page25QuickReply[] = useMemo(
+    () => [
+      'You coming tonight? 👀',
+      'So, when and were are we meeting? 👀',
+      'What are you wearing? 👀',
+      'Ready for Garba? ✨',
+      'Outfit match karein? 👗',
+      'are u a Chai person or coffee person? 👀',
+      'Sweet or spicy? 👀',
+      'Which hostel are you in?',
+      'Have we met before?',
+    ],
+    []
+  );
+
+  const icebreakers: string[] = useMemo(
+    () => [
+      'Hii, where are you from? 👋',
+      'Heyy, which hostel are you in?',
+      'Hii! Which year are you in?',
+      'What are you studying?',
+      'Have we met somewhere on campus before? 👀',
+      "How's your day going?",
+      'Are you excited for Garba? 💃',
+      'Which Garba night are you going to?',
+      "What's your go-to Garba song? 🎶",
+      'Okay important question — chai after Garba? ☕',
+    ],
+    []
+  );
+
+  // Initial conversation starts empty until the user sends a message
+  const [messages, setMessages] = useState<Page25Message[]>([]);
+
+  const [isTyping, setIsTyping] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const timeoutsRef = useRef<NodeJS.Timeout[]>([]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isTyping]);
+    return () => {
+      timeoutsRef.current.forEach(clearTimeout);
+    };
+  }, []);
 
-  const handleSend = () => {
-    const trimmed = inputText.trim();
-    if (!trimmed) return;
-
-    const userMsg: Message = {
-      id: `user-${Date.now()}`,
-      sender: 'user',
-      text: trimmed,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  const handleSendMessage = (text: string, _meta: Page25SendMeta) => {
+    const userMsgId = `user-${Date.now()}`;
+    const userMsg: Page25Message = {
+      id: userMsgId,
+      senderId: currentUserId,
+      text,
+      createdAt: Date.now(),
+      status: 'sent',
+      isOwn: true,
     };
 
     setMessages((prev) => [...prev, userMsg]);
-    setInputText('');
 
-    // Trigger mock partner reply after a brief realistic delay
-    if (messages.length === 0) {
-      setTimeout(() => {
-        setIsTyping(true);
-      }, 700);
+    // Simulated status updates: delivered → seen
+    const tDelivered = setTimeout(() => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === userMsgId ? { ...m, status: 'delivered' } : m))
+      );
+    }, 600);
+    timeoutsRef.current.push(tDelivered);
 
-      setTimeout(() => {
-        setIsTyping(false);
-        const replyMsg: Message = {
-          id: `partner-${Date.now()}`,
-          sender: 'partner',
-          text: 'Hey! 👋 Super excited we matched! Are you practicing the 3-Taali steps?',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setMessages((prev) => [...prev, replyMsg]);
-      }, 2100);
-    } else {
-      setTimeout(() => {
-        setIsTyping(true);
-      }, 800);
+    const tSeen = setTimeout(() => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === userMsgId ? { ...m, status: 'seen' } : m))
+      );
+    }, 1300);
+    timeoutsRef.current.push(tSeen);
 
-      setTimeout(() => {
-        setIsTyping(false);
-        const replyMsg: Message = {
-          id: `partner-${Date.now()}`,
-          sender: 'partner',
-          text: 'Totally! Let’s definitely meet near the center ground! 🪩',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setMessages((prev) => [...prev, replyMsg]);
-      }, 2000);
-    }
-  };
+    // Realistic partner reply
+    const tTypingStart = setTimeout(() => {
+      setIsTyping(true);
+    }, 1800);
+    timeoutsRef.current.push(tTypingStart);
 
-  const handleSelectStarter = (starterText: string) => {
-    setInputText(starterText);
-    inputRef.current?.focus();
+    const tReply = setTimeout(() => {
+      setIsTyping(false);
+      let replyText = 'Totally! Let’s meet near Gate 2 at the center ground! 🪩';
+      const lower = text.toLowerCase();
+      if (lower.includes('you coming tonight') || lower.includes('coming tonight')) {
+        replyText = 'Yess! Absolutely, arriving around 8 PM. Are you coming?';
+      } else if (lower.includes('when and were') || lower.includes('meeting')) {
+        replyText = 'Near Gate 2 around 8:15 PM once the crowd settles in! Sounds good?';
+      } else if (lower.includes('what are you wearing')) {
+        replyText = 'Traditional chaniya choli with mirror work! What about you?';
+      } else if (lower.includes('ready for garba')) {
+        replyText = '100% ready, energy levels are sky high! 🔥';
+      } else if (lower.includes('outfit match') || lower.includes('outfit')) {
+        replyText = 'Yess! Traditional yellow & royal blue for Night 1! What are you wearing?';
+      } else if (lower.includes('chai person') || lower.includes('coffee person')) {
+        replyText = 'Late night chai tapri fan always! But coffee for exams ☕';
+      } else if (lower.includes('sweet or spicy')) {
+        replyText = 'Spicy fafda-chutney first, then sweet jalebi to balance! You?';
+      } else if (lower.includes('hostel')) {
+        replyText = 'Block C hostel! What about you, day scholar or hostel?';
+      } else if (lower.includes('met before')) {
+        replyText = 'Maybe near the central library or campus food court! We might have crossed paths 😄';
+      } else if (lower.includes('where are you from') || lower.includes('from?')) {
+        replyText = 'From Ahmedabad! But staying on campus for college. What about you?';
+      } else if (lower.includes('year are you in') || lower.includes('which year')) {
+        replyText = '2nd year CSE! What about you?';
+      } else if (lower.includes('studying')) {
+        replyText = 'Computer Science & Design! Lots of assignments this week haha.';
+      } else if (lower.includes('day going')) {
+        replyText = 'Pretty good, just wrapped up classes and getting ready for evening Garba! You?';
+      } else if (lower.includes('gate 2') || lower.includes('8 baje')) {
+        replyText = 'Perfect, 8 baje sharp near Gate 2! I’ll look out for you ✨';
+      } else if (lower.includes('chai')) {
+        replyText = 'Deal! Post-Garba chai at the tapri is non-negotiable ☕';
+      } else if (lower.includes('excited for garba') || lower.includes('excited')) {
+        replyText = 'Super excited! Been practicing with friends all week 🔥';
+      } else if (lower.includes('which garba night') || lower.includes('night are you going')) {
+        replyText = 'Definitely Night 1 and the weekend rounds! Are you going today?';
+      } else if (lower.includes('playlist') || lower.includes('song')) {
+        replyText = 'Chogada and Dholida on repeat! Can’t wait for the live orchestra tonight 🎶';
+      } else if (lower.includes('pro') || lower.includes('beginner')) {
+        replyText = 'Haha intermediate! But full energy on the Sanedo rounds 🔥';
+      } else if (lower.includes('step') || lower.includes('taali')) {
+        replyText = '3-taali always! We’ll sync steps before the circle speeds up 🕺';
+      }
+
+      const partnerMsg: Page25Message = {
+        id: `partner-${Date.now()}`,
+        senderId: partnerUserId,
+        text: replyText,
+        createdAt: Date.now(),
+      };
+      setMessages((prev) => [...prev, partnerMsg]);
+    }, 3400);
+    timeoutsRef.current.push(tReply);
   };
 
   return (
-    <div className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-between bg-[#251436] text-white select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
-      {/* ILLUSTRATED EVENING CAMPUS ENVIRONMENT (Flat vector editorial artwork, zero neon/glow) */}
-      <CampusNightChatBackground />
+    <div className="relative w-full h-full min-h-0 flex-1 flex flex-col overflow-hidden">
+      <Page25
+        layout="fill"
+        currentUser={currentUser}
+        matchedUser={matchedUser}
+        matchContext={matchContext}
+        messages={messages}
+        quickReplies={quickReplies}
+        icebreakers={icebreakers}
+        isMatchTyping={isTyping}
+        onBack={onBack}
+        onSendMessage={handleSendMessage}
+        onMenuClick={() => setShowMenu((prev) => !prev)}
+      />
 
-      {/* TOP HEADER: ←, Profile photo, Aarohi, Your Garba partner, three-dot menu */}
-      <header 
-        className="relative shrink-0 z-20 px-4 pb-2.5 bg-[#251436]/90 backdrop-blur-md border-b border-[#E3E0F5]/10 flex items-center justify-between"
-        style={{ paddingTop: 'max(12px, env(safe-area-inset-top, 12px))' }}
-      >
-        <div className="flex items-center gap-3">
-          {/* Back button: small rounded-square, dark translucent, subtle purple border */}
-          <button
-            type="button"
-            onClick={onBack}
-            className="w-9 h-9 rounded-xl bg-[#1B0B2A]/80 hover:bg-[#1B0B2A] active:scale-95 border border-[#894EFF]/30 flex items-center justify-center text-white transition-all cursor-pointer shadow-xs"
-            aria-label="Back to match reveal"
-          >
-            <ArrowLeft size={16} strokeWidth={2.4} />
-          </button>
-
-          {/* Profile photo with subtle border & online ring */}
-          <div className="relative">
-            <div className="w-9 h-9 rounded-full overflow-hidden border border-[#F02A8A]/70 bg-[#1B0B2A]">
-              <img
-                src={resolvedPartnerPhoto}
-                alt={partnerName}
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  e.currentTarget.src = '/assets/female.png';
-                }}
-              />
-            </div>
-            {/* Small online green dot */}
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#08A98D] border-2 border-[#251436]" />
-          </div>
-
-          {/* Name & status */}
-          <div className="flex flex-col">
-            <span className="text-sm font-bold text-white tracking-tight leading-tight">
-              {partnerName}
-            </span>
-            <span className="text-[11px] font-medium text-[#E3E0F5]/70 leading-tight">
-              Your Garba partner
-            </span>
-          </div>
-        </div>
-
-        {/* Right action: subtle three-dot button */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowMenu((prev) => !prev)}
-            className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 active:scale-95 flex items-center justify-center text-[#E3E0F5]/80 hover:text-white transition-all cursor-pointer"
-            aria-label="Chat options"
-          >
-            <MoreVertical size={16} />
-          </button>
-
-          {/* Minimal dropdown menu */}
-          <AnimatePresence>
-            {showMenu && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: 4 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: 4 }}
-                className="absolute right-0 top-10 w-40 bg-[#1B0B2A] border border-[#894EFF]/30 rounded-xl shadow-xl py-1.5 z-50 text-xs"
-              >
-                <button
-                  type="button"
-                  onClick={() => setShowMenu(false)}
-                  className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-white/90 transition-colors"
-                >
-                  View String Details
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMessages([]);
-                    setShowMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-white/90 transition-colors"
-                >
-                  Clear Chat
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowMenu(false)}
-                  className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-[#F02A8A] transition-colors"
-                >
-                  Report / Safety
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </header>
-
-      {/* CHAT MESSAGES SCROLL AREA */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 z-10 no-scrollbar">
-        {/* CONVERSATION INTRO: String & Sparkles, Connected message */}
-        <div className="py-4 px-3 flex flex-col items-center text-center my-2">
-          {/* Miniature string loop graphic */}
-          <div className="w-12 h-12 rounded-full bg-[#1B0B2A] border border-[#FFC928]/40 shadow-[0_0_16px_rgba(255,201,40,0.2)] flex items-center justify-center text-[#FFC928] mb-2.5 relative">
-            <Sparkles size={20} strokeWidth={2.4} />
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ repeat: Infinity, duration: 12, ease: 'linear' }}
-              className="absolute inset-0 rounded-full border border-dashed border-[#F02A8A]/40"
-            />
-          </div>
-
-          <h3 className="text-sm font-extrabold text-white tracking-tight">
-            Your strings are connected ✨
-          </h3>
-          <p className="text-xs font-medium text-[#E3E0F5]/75 mt-1 max-w-[240px]">
-            Say hi and start your Garba story.
-          </p>
-        </div>
-
-        {/* SUGGESTED CONVERSATION STARTERS (Chips) */}
-        {messages.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.15 }}
-            className="space-y-2 max-w-[320px] mx-auto pt-1 pb-3"
-          >
-            <span className="text-[10px] font-black uppercase text-[#894EFF] tracking-wider text-center block">
-              Suggested Starters
-            </span>
-            <div className="flex flex-col gap-1.5">
-              {STARTERS.map((starter) => (
-                <button
-                  key={starter}
-                  type="button"
-                  onClick={() => handleSelectStarter(starter)}
-                  className="w-full text-left px-3.5 py-2.5 rounded-xl bg-[#1B0B2A]/90 hover:bg-[#1B0B2A] active:scale-[0.99] border border-[#894EFF]/30 hover:border-[#894EFF]/60 text-xs font-medium text-[#E3E0F5] transition-all cursor-pointer shadow-xs flex items-center justify-between group"
-                >
-                  <span>{starter}</span>
-                  <span className="text-[10px] text-[#894EFF] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
-                    Tap to use
-                  </span>
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        )}
-
-        {/* RENDER MESSAGES */}
-        {messages.map((msg) => {
-          const isUser = msg.sender === 'user';
-          return (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 8, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-              className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
-            >
-              <div
-                className={`max-w-[78%] px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed shadow-sm ${
-                  isUser
-                    ? 'bg-[#894EFF] text-white rounded-2xl rounded-br-xs shadow-[0_4px_16px_rgba(137,78,255,0.35)]'
-                    : 'bg-[#1B0B2A] border border-[#894EFF]/30 text-[#E3E0F5] rounded-2xl rounded-bl-xs'
-                }`}
-              >
-                {msg.text}
-              </div>
-              <div className="flex items-center gap-1 mt-1 px-1">
-                <span className="text-[9.5px] text-[#E3E0F5]/50">{msg.timestamp}</span>
-                {isUser && <CheckCheck size={11} className="text-[#08A98D]" />}
-              </div>
-            </motion.div>
-          );
-        })}
-
-        {/* TYPING INDICATOR */}
-        {isTyping && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#1B0B2A] border border-[#894EFF]/30 rounded-2xl rounded-bl-xs w-fit"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-[#894EFF] animate-bounce" />
-            <span
-              className="w-1.5 h-1.5 rounded-full bg-[#F02A8A] animate-bounce"
-              style={{ animationDelay: '0.15s' }}
-            />
-            <span
-              className="w-1.5 h-1.5 rounded-full bg-[#FFC928] animate-bounce"
-              style={{ animationDelay: '0.3s' }}
-            />
-          </motion.div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* BOTTOM FIXED MESSAGE COMPOSER */}
-      <footer 
-        className="relative shrink-0 z-20 px-3.5 pt-2 bg-[#251436]/95 backdrop-blur-md border-t border-[#E3E0F5]/10"
-        style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))' }}
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend();
-          }}
-          className="flex items-center gap-2 max-w-[420px] mx-auto"
+      {/* Options dropdown menu */}
+      {showMenu && (
+        <div
+          className="absolute inset-0 z-50 flex items-start justify-end p-4 pt-16 bg-black/40 backdrop-blur-xs"
+          onClick={() => setShowMenu(false)}
         >
-          <div className="relative flex-1">
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Message your Garba partner... 😊"
-              className="w-full bg-[#1B0B2A] text-white placeholder-[#E3E0F5]/40 text-xs sm:text-sm rounded-full pl-4 pr-3 py-2.5 border border-[#E3E0F5]/20 focus:outline-none focus:border-[#894EFF] transition-colors"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={!inputText.trim()}
-            className="w-10 h-10 rounded-full bg-[#894EFF] hover:bg-[#7839f3] disabled:opacity-40 disabled:hover:bg-[#894EFF] active:scale-95 text-white flex items-center justify-center transition-all cursor-pointer shrink-0 shadow-[0_2px_12px_rgba(137,78,255,0.4)]"
-            aria-label="Send message"
+          <div
+            className="w-48 bg-[#1e1033] border border-[#7c4dff]/40 rounded-2xl shadow-2xl py-2 overflow-hidden text-sm"
+            onClick={(e) => e.stopPropagation()}
           >
-            <Send size={15} strokeWidth={2.4} className="translate-x-[1px]" />
-          </button>
-        </form>
-      </footer>
+            <div className="px-4 py-2 border-b border-white/10 text-xs font-semibold text-[#b9aad6]">
+              {matchedUser.name} &amp; {currentUser.firstName}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 text-white/90 hover:bg-white/10 transition-colors text-xs font-medium cursor-pointer"
+            >
+              View Match Details
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMessages([]);
+                setShowMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 text-white/90 hover:bg-white/10 transition-colors text-xs font-medium cursor-pointer"
+            >
+              Clear Conversation
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowMenu(false);
+              }}
+              className="w-full text-left px-4 py-2 text-[#ff2d87] hover:bg-white/10 transition-colors text-xs font-medium cursor-pointer"
+            >
+              Report / Safety
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+export default MessagingScreen;

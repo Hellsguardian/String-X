@@ -36,6 +36,29 @@ export const matchmakingService = {
           return successResult(null);
         }
 
+        // Helper to resolve pair-level reveal status from public.connections
+        const resolveConnectionReveal = async (matchId: string): Promise<boolean> => {
+          try {
+            const { data: connection, error: connectionError } = await (supabase
+              .from('connections' as any) as any)
+              .select('user_a_revealed, user_b_revealed')
+              .eq('match_id', matchId)
+              .maybeSingle();
+
+            if (connectionError || !connection) {
+              if (connectionError) {
+                console.warn('[MATCHMAKING_SERVICE] Error checking connection reveal:', connectionError.message);
+              }
+              return false;
+            }
+
+            return Boolean(connection.user_a_revealed && connection.user_b_revealed);
+          } catch (connErr) {
+            console.warn('[MATCHMAKING_SERVICE] Exception querying connection reveal:', connErr);
+            return false;
+          }
+        };
+
         // 1. Query secure projection view v_my_matches
         const { data: viewData, error: viewError } = await (supabase
           .from('v_my_matches' as any)
@@ -44,8 +67,11 @@ export const matchmakingService = {
           .maybeSingle() as any);
 
         if (!viewError && viewData) {
+          const matchId = viewData.match_id || viewData.id;
+          const isRevealed = await resolveConnectionReveal(matchId);
+
           return successResult({
-            id: viewData.match_id || viewData.id,
+            id: matchId,
             eventId: viewData.event_id,
             partnerId: viewData.partner_id,
             partnerUserCode: viewData.partner_user_code,
@@ -54,7 +80,7 @@ export const matchmakingService = {
             sharedHighlights: viewData.shared_highlights,
             status: viewData.status || 'active',
             matchedAt: viewData.matched_at || new Date().toISOString(),
-            isRevealed: viewData.is_revealed || false,
+            isRevealed,
           });
         }
 
@@ -74,6 +100,8 @@ export const matchmakingService = {
 
         if (directMatch) {
           const partnerId = directMatch.user_a_id === currentUserId ? directMatch.user_b_id : directMatch.user_a_id;
+          const isRevealed = await resolveConnectionReveal(directMatch.id);
+
           return successResult({
             id: directMatch.id,
             eventId: directMatch.event_id,
@@ -83,7 +111,7 @@ export const matchmakingService = {
             sharedHighlights: directMatch.shared_highlights,
             status: directMatch.status,
             matchedAt: directMatch.matched_at || new Date().toISOString(),
-            isRevealed: directMatch.admin_reveal || false,
+            isRevealed,
           });
         }
 

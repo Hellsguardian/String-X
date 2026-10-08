@@ -1,21 +1,17 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Send, MoreVertical, Sparkles, CheckCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../../types';
-import { CampusNightChatBackground } from '../illustrations/CampusNightChatBackground';
-
-interface Message {
-  id: string;
-  sender: 'user' | 'partner';
-  text: string;
-  timestamp: string;
-}
+import { messagingService } from '../../services/messagingService';
+import { MessageItem } from '../../types/messaging';
+import Page25, { Page25Message } from '../../page25-claude';
 
 interface MessagingScreenProps {
   profile: UserProfile;
   onBack: () => void;
   partnerName?: string;
   partnerPhoto?: string;
+  matchId?: string;
+  currentUserId?: string;
+  partnerId?: string;
 }
 
 export const MessagingScreen: React.FC<MessagingScreenProps> = ({
@@ -23,320 +19,236 @@ export const MessagingScreen: React.FC<MessagingScreenProps> = ({
   onBack,
   partnerName = 'Aarohi',
   partnerPhoto,
+  matchId,
+  currentUserId,
+  partnerId,
 }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [inputText, setInputText] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
+  const effectiveUserId = currentUserId || profile.id || 'user';
+  const effectivePartnerId = partnerId || (partnerName ? `partner-${partnerName.toLowerCase()}` : 'partner');
+  const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [isSending, setIsSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  // Suggested conversation starters
-  const STARTERS = [
-    'Which Garba night are you going to? 🕺',
-    "What's your favourite Garba song?",
-    'Ready for Navratri? ✨',
-  ];
 
   // Default partner photo fallback
   const resolvedPartnerPhoto =
     partnerPhoto ||
     (profile.gender === 'Male' ? '/assets/female.png' : '/assets/male.png');
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
+  // Load message history & subscribe to realtime updates
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isTyping]);
+    if (!matchId) return;
 
-  const handleSend = () => {
-    const trimmed = inputText.trim();
-    if (!trimmed) return;
+    let isMounted = true;
+    setIsLoadingHistory(true);
 
-    const userMsg: Message = {
-      id: `user-${Date.now()}`,
-      sender: 'user',
-      text: trimmed,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    const loadHistory = async () => {
+      try {
+        const res = await messagingService.getMessages(matchId);
+        if (!isMounted) return;
+
+        if (res.data) {
+          const history = res.data;
+          setMessages((prev) => {
+            const combined = [...prev];
+            for (const item of history) {
+              if (!combined.some((m) => m.id === item.id)) {
+                combined.push(item);
+              }
+            }
+            combined.sort(
+              (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+            return combined;
+          });
+        }
+      } catch (err) {
+        console.error('[MessagingScreen] Exception loading message history:', err);
+      } finally {
+        if (isMounted) {
+          setIsLoadingHistory(false);
+        }
+      }
     };
 
-    setMessages((prev) => [...prev, userMsg]);
-    setInputText('');
+    loadHistory();
 
-    // Trigger mock partner reply after a brief realistic delay
-    if (messages.length === 0) {
-      setTimeout(() => {
-        setIsTyping(true);
-      }, 700);
+    const unsubscribe = messagingService.subscribeToMessages(
+      matchId,
+      (newMessage) => {
+        if (!isMounted) return;
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === newMessage.id)) {
+            return prev;
+          }
+          const next = [...prev, newMessage];
+          next.sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+          return next;
+        });
+      },
+      (err) => {
+        console.warn('[MessagingScreen] Realtime notice:', err);
+      }
+    );
 
-      setTimeout(() => {
-        setIsTyping(false);
-        const replyMsg: Message = {
-          id: `partner-${Date.now()}`,
-          sender: 'partner',
-          text: 'Hey! 👋 Super excited we matched! Are you practicing the 3-Taali steps?',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setMessages((prev) => [...prev, replyMsg]);
-      }, 2100);
-    } else {
-      setTimeout(() => {
-        setIsTyping(true);
-      }, 800);
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [matchId]);
 
-      setTimeout(() => {
-        setIsTyping(false);
-        const replyMsg: Message = {
-          id: `partner-${Date.now()}`,
-          sender: 'partner',
-          text: 'Totally! Let’s definitely meet near the center ground! 🪩',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        setMessages((prev) => [...prev, replyMsg]);
-      }, 2000);
+  const handleSend = async (textToSend: string) => {
+    const text = textToSend.trim();
+    if (!text || isSending) return;
+
+    if (!matchId || !effectiveUserId) {
+      console.warn('[MessagingScreen] Cannot send message: matchId or senderId is missing');
+      return;
+    }
+
+    setIsSending(true);
+    setSendError(null);
+
+    try {
+      const res = await messagingService.sendMessage(matchId, effectiveUserId, text);
+      if (res.error) {
+        console.error('[MessagingScreen] Failed to send message:', res.error.message);
+        setSendError(res.error.message);
+        throw new Error(res.error.message);
+      } else if (res.data) {
+        const sentMessage = res.data;
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === sentMessage.id)) {
+            return prev;
+          }
+          const next = [...prev, sentMessage];
+          next.sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+          return next;
+        });
+      }
+    } catch (err: any) {
+      console.error('[MessagingScreen] Exception sending message:', err);
+      setSendError(err?.message || 'Failed to send message');
+      throw err;
+    } finally {
+      setIsSending(false);
     }
   };
 
-  const handleSelectStarter = (starterText: string) => {
-    setInputText(starterText);
-    inputRef.current?.focus();
+  // Map production data to Page25 data contract
+  const currentUser = {
+    id: effectiveUserId,
+    firstName: profile.fullName?.trim().split(' ')[0],
+    avatarUrl: profile.photoUrl || profile.faceVerificationPhoto,
   };
 
+  const matchedUser = {
+    id: effectivePartnerId,
+    name: partnerName,
+    avatarUrl: resolvedPartnerPhoto,
+    relationshipLabel: 'Your Garba partner',
+    statusText: 'Your Garba partner',
+  };
+
+  const page25Messages: Page25Message[] = messages.map((m) => {
+    const isOwn = m.senderUserId === effectiveUserId;
+    return {
+      id: m.id,
+      senderId: m.senderUserId,
+      text: m.body,
+      createdAt: m.createdAt,
+      isOwn,
+      status: isOwn ? 'sent' : undefined,
+    };
+  });
+
   return (
-    <div className="w-full h-full min-h-full max-h-full flex-1 flex flex-col justify-between bg-[#251436] text-white select-none relative overflow-hidden font-['Plus_Jakarta_Sans',sans-serif]">
-      {/* Illustrated evening campus environment */}
-      <CampusNightChatBackground />
+    <div className="relative w-full h-full min-h-full max-h-full flex-1 flex flex-col overflow-hidden">
+      {/* Loading history notice */}
+      {isLoadingHistory && messages.length === 0 && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1 rounded-full bg-[#1B0B2A]/80 border border-[#894EFF]/30 text-white text-[11px] shadow-md pointer-events-none">
+          <div className="w-3 h-3 rounded-full border-2 border-[#894EFF] border-t-transparent animate-spin" />
+          <span>Loading messages...</span>
+        </div>
+      )}
 
-      {/* TOP HEADER: ←, Profile photo, Name, status, three-dot menu */}
-      <header 
-        className="relative shrink-0 z-20 px-4 pb-2.5 bg-[#251436]/90 backdrop-blur-md border-b border-[#E3E0F5]/10 flex items-center justify-between"
-        style={{ paddingTop: 'max(12px, env(safe-area-inset-top, 12px))' }}
-      >
-        <div className="flex items-center gap-3">
-          {/* Back button */}
+      {/* Sending error banner */}
+      {sendError && (
+        <div className="absolute top-16 left-4 right-4 z-40 px-3 py-1.5 rounded-lg bg-red-500/20 border border-red-500/30 text-red-200 text-xs flex items-center justify-between shadow-md">
+          <span>{sendError}</span>
           <button
             type="button"
-            onClick={onBack}
-            className="w-9 h-9 rounded-xl bg-[#1B0B2A]/80 hover:bg-[#1B0B2A] active:scale-95 border border-[#894EFF]/30 flex items-center justify-center text-white transition-all cursor-pointer shadow-xs"
-            aria-label="Back to match reveal"
+            onClick={() => setSendError(null)}
+            className="text-red-300 hover:text-white font-bold ml-2 cursor-pointer"
           >
-            <ArrowLeft size={16} strokeWidth={2.4} />
+            ×
           </button>
-
-          {/* Profile photo with subtle border & online ring */}
-          <div className="relative">
-            <div className="w-9 h-9 rounded-full overflow-hidden border border-[#F02A8A]/70 bg-[#1B0B2A]">
-              <img
-                src={resolvedPartnerPhoto}
-                alt={partnerName}
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  e.currentTarget.src = profile.gender === 'Male' ? '/assets/female.png' : '/assets/male.png';
-                }}
-              />
-            </div>
-            {/* Small online green dot */}
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#08A98D] border-2 border-[#251436]" />
-          </div>
-
-          {/* Name & status */}
-          <div className="flex flex-col">
-            <span className="text-sm font-bold text-white tracking-tight leading-tight">
-              {partnerName}
-            </span>
-            <span className="text-[11px] font-medium text-[#E3E0F5]/70 leading-tight">
-              Your Garba partner
-            </span>
-          </div>
         </div>
+      )}
 
-        {/* Right action: three-dot button */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowMenu((prev) => !prev)}
-            className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 active:scale-95 flex items-center justify-center text-[#E3E0F5]/80 hover:text-white transition-all cursor-pointer"
-            aria-label="Chat options"
-          >
-            <MoreVertical size={16} />
-          </button>
-
-          {/* Dropdown menu */}
-          <AnimatePresence>
-            {showMenu && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9, y: 4 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: 4 }}
-                className="absolute right-0 top-10 w-40 bg-[#1B0B2A] border border-[#894EFF]/30 rounded-xl shadow-xl py-1.5 z-50 text-xs"
-              >
-                <button
-                  type="button"
-                  onClick={() => setShowMenu(false)}
-                  className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-white/90 transition-colors"
-                >
-                  View String Details
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMessages([]);
-                    setShowMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-white/90 transition-colors"
-                >
-                  Clear Chat
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowMenu(false)}
-                  className="w-full text-left px-3 py-1.5 hover:bg-white/10 text-[#F02A8A] transition-colors"
-                >
-                  Report / Safety
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </header>
-
-      {/* CHAT MESSAGES SCROLL AREA */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 z-10 no-scrollbar">
-        {/* CONVERSATION INTRO: String & Sparkles, Connected message */}
-        <div className="py-4 px-3 flex flex-col items-center text-center my-2">
-          {/* Miniature string loop graphic */}
-          <div className="w-12 h-12 rounded-full bg-[#1B0B2A] border border-[#FFC928]/40 shadow-[0_0_16px_rgba(255,201,40,0.2)] flex items-center justify-center text-[#FFC928] mb-2.5 relative">
-            <Sparkles size={20} strokeWidth={2.4} />
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ repeat: Infinity, duration: 12, ease: 'linear' }}
-              className="absolute inset-0 rounded-full border border-dashed border-[#F02A8A]/40"
-            />
-          </div>
-
-          <h3 className="text-sm font-extrabold text-white tracking-tight">
-            Your strings are connected ✨
-          </h3>
-          <p className="text-xs font-medium text-[#E3E0F5]/75 mt-1 max-w-[240px]">
-            Say hi and start your Garba story.
-          </p>
-        </div>
-
-        {/* SUGGESTED CONVERSATION STARTERS (Chips) */}
-        {messages.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.15 }}
-            className="space-y-2 max-w-[320px] mx-auto pt-1 pb-3"
-          >
-            <span className="text-[10px] font-black uppercase text-[#894EFF] tracking-wider text-center block">
-              Suggested Starters
-            </span>
-            <div className="flex flex-col gap-1.5">
-              {STARTERS.map((starter) => (
-                <button
-                  key={starter}
-                  type="button"
-                  onClick={() => handleSelectStarter(starter)}
-                  className="w-full text-left px-3.5 py-2.5 rounded-xl bg-[#1B0B2A]/90 hover:bg-[#1B0B2A] active:scale-[0.99] border border-[#894EFF]/30 hover:border-[#894EFF]/60 text-xs font-medium text-[#E3E0F5] transition-all cursor-pointer shadow-xs flex items-center justify-between group"
-                >
-                  <span>{starter}</span>
-                  <span className="text-[10px] text-[#894EFF] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
-                    Tap to use
-                  </span>
-                </button>
-              ))}
-            </div>
-          </motion.div>
-        )}
-
-        {/* RENDER MESSAGES */}
-        {messages.map((msg) => {
-          const isUser = msg.sender === 'user';
-          return (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 8, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-              className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
-            >
-              <div
-                className={`max-w-[78%] px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed shadow-sm ${
-                  isUser
-                    ? 'bg-[#894EFF] text-white rounded-2xl rounded-br-xs shadow-[0_4px_16px_rgba(137,78,255,0.35)]'
-                    : 'bg-[#1B0B2A] border border-[#894EFF]/30 text-[#E3E0F5] rounded-2xl rounded-bl-xs'
-                }`}
-              >
-                {msg.text}
-              </div>
-              <div className="flex items-center gap-1 mt-1 px-1">
-                <span className="text-[9.5px] text-[#E3E0F5]/50">{msg.timestamp}</span>
-                {isUser && <CheckCheck size={11} className="text-[#08A98D]" />}
-              </div>
-            </motion.div>
-          );
-        })}
-
-        {/* TYPING INDICATOR */}
-        {isTyping && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-1.5 px-3 py-2 bg-[#1B0B2A] border border-[#894EFF]/30 rounded-2xl rounded-bl-xs w-fit"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-[#894EFF] animate-bounce" />
-            <span
-              className="w-1.5 h-1.5 rounded-full bg-[#F02A8A] animate-bounce"
-              style={{ animationDelay: '0.15s' }}
-            />
-            <span
-              className="w-1.5 h-1.5 rounded-full bg-[#FFC928] animate-bounce"
-              style={{ animationDelay: '0.3s' }}
-            />
-          </motion.div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* BOTTOM FIXED MESSAGE COMPOSER */}
-      <footer 
-        className="relative shrink-0 z-20 px-3.5 pt-2 bg-[#251436]/95 backdrop-blur-md border-t border-[#E3E0F5]/10"
-        style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))' }}
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend();
-          }}
-          className="flex items-center gap-2 max-w-[420px] mx-auto"
+      {/* Options menu modal */}
+      {showMenu && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-end p-4 bg-black/40"
+          onClick={() => setShowMenu(false)}
         >
-          <div className="relative flex-1">
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Message your Garba partner... 😊"
-              className="w-full bg-[#1B0B2A] text-white placeholder-[#E3E0F5]/40 text-xs sm:text-sm rounded-full pl-4 pr-3 py-2.5 border border-[#E3E0F5]/20 focus:outline-none focus:border-[#894EFF] transition-colors"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={!inputText.trim()}
-            className="w-10 h-10 rounded-full bg-[#894EFF] hover:bg-[#7839f3] disabled:opacity-40 disabled:hover:bg-[#894EFF] active:scale-95 text-white flex items-center justify-center transition-all cursor-pointer shrink-0 shadow-[0_2px_12px_rgba(137,78,255,0.4)]"
-            aria-label="Send message"
+          <div
+            className="mt-12 w-44 bg-[#1B0B2A] border border-[#894EFF]/30 rounded-xl shadow-xl py-1.5 text-xs text-white z-50 select-none"
+            onClick={(e) => e.stopPropagation()}
           >
-            <Send size={15} strokeWidth={2.4} className="translate-x-[1px]" />
-          </button>
-        </form>
-      </footer>
+            <button
+              type="button"
+              onClick={() => {
+                setShowMenu(false);
+                onBack();
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              View Match Details
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMessages([]);
+                setShowMenu(false);
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-white/10 transition-colors cursor-pointer"
+            >
+              Clear Local Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                alert('Thank you. Safety report submitted.');
+                setShowMenu(false);
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-white/10 text-[#F02A8A] transition-colors cursor-pointer"
+            >
+              Report / Safety
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Redesigned Page 25 Chat Screen */}
+      <Page25
+        layout="fill"
+        currentUser={currentUser}
+        matchedUser={matchedUser}
+        messages={page25Messages}
+        disabled={isSending}
+        matchContext={{
+          badge: 'STRINGS ATTACHED · NAVRATRI',
+        }}
+        onBack={onBack}
+        onSendMessage={(text) => handleSend(text)}
+        onMenuClick={() => setShowMenu((prev) => !prev)}
+      />
     </div>
   );
 };

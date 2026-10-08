@@ -240,5 +240,67 @@ This document records the foundational architectural decisions made for the STRI
 - **Reason:** Eliminates administrator workflow errors during manual moderation, guarantees deterministic state derivation, and ensures `public.profiles` always mirrors the latest verification attempt.
 - **Consequences:** Admins can edit parent or child fields freely in Table Editor; profile summary status updates automatically with zero desynchronization.
 
+---
+
+## ADR 21: Temporary Pause of Parul University Email Domain Restriction
+- **Context:** Testing and external evaluation required onboarding users without manual pre-population of every email address in `public.allowed_auth_emails`.
+- **Decision:**
+  1. Temporarily replace the body of `public.is_email_allowed(p_email TEXT)` to validate standard email syntax (`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`) without enforcing domain suffix.
+  2. Update frontend `authService.isEmailPermitted(email)` to match the standard syntax validation without domain restrictions.
+  3. Maintain all triggers (`handle_new_user`, `handle_auth_user_email_sync`, `on_auth_user_created`, `on_auth_user_email_updated`) and profile identity schemas untouched.
+  4. Document the state as **TEMPORARILY PAUSED** with complete audit and restoration procedures in [`docs/STRINGX_PU_EMAIL_RESTRICTION.md`](file:///d:/coder_cave/projects/string%20X/docs/STRINGX_PU_EMAIL_RESTRICTION.md).
+- **Reason:** Enables testing with arbitrary standard email addresses without modifying database triggers or table constraints.
+- **Consequences:** Non-PU accounts can sign in with `enrollment_no = NULL`. Prior to restoring the PU domain restriction, an audit of non-PU accounts must be performed to migrate approved accounts into `public.allowed_auth_emails`.
+
+---
+
+## ADR 22: 1-to-1 Messaging Subsystem Architecture & RLS Security Model (V1)
+- **Context:** Once a match pairing is revealed, participants require direct 1-to-1 communication. We needed a canonical persistence and authorization model for conversation history without introducing redundant conversation tables.
+- **Decision:**
+  1. Create `public.messages` keyed directly to canonical `public.matches(id)` (`ON DELETE CASCADE`), with `sender_user_id` referencing `public.profiles(id)`, `body TEXT` constrained to 1–2,000 characters, and `created_at TIMESTAMPTZ`.
+  2. Implement Row Level Security on `public.messages`:
+     - `SELECT`: Allowed only for authenticated participants in an active, revealed, unblocked match.
+     - `INSERT`: Allowed only when caller is a participant, `auth.uid() = sender_user_id`, match is active, revealed, and unblocked.
+     - `UPDATE` & `DELETE`: Denied (immutable append-only history in V1).
+  3. Add `idx_messages_match_created_at` on `(match_id, created_at ASC)`.
+  4. Add `public.messages` to the `supabase_realtime` publication for client `INSERT` event streaming.
+- **Reason:** Leverages `public.matches` as the canonical conversation entity, guarantees append-only immutable message history, and prevents unauthorized, unrevealed, or blocked message access at the database engine level.
+- **Consequences:** Fast O(1) message queries indexed on `(match_id, created_at ASC)`, seamless realtime updates via Supabase Realtime channel `messages:${matchId}`.
+
+---
+
+## ADR 23: SECURITY DEFINER Helper with Participant Scope Guard for Bi-Directional Block Resolution (`public.is_pair_blocked`)
+- **Context:** `public.user_blocks` enforces single-direction RLS where a user can only read blocks where `blocker_id = auth.uid()`. In messaging, if User B blocks User A, User A's query on `user_blocks` cannot detect this block under regular client permissions. However, exposing bidirectional block checks via a raw SECURITY DEFINER function could allow arbitrary users to probe block relationships between third parties.
+- **Decision:**
+  1. Create `public.is_pair_blocked(p_user_a UUID, p_user_b UUID)` as a `SECURITY DEFINER` function with `SET search_path = public, auth, pg_temp`.
+  2. Implement a strict caller participant guard: returns `false` unconditionally if `auth.uid() IS NULL OR (auth.uid() <> p_user_a AND auth.uid() <> p_user_b)`.
+  3. If caller is a participant, evaluate if either user blocked the other in `public.user_blocks`.
+  4. Revoke EXECUTE from `PUBLIC` and `anon`; grant to `authenticated`.
+- **Reason:** Solves bidirectional block enforcement for messaging RLS without compromising block privacy or permitting block-probing oracle attacks via Supabase RPC.
+- **Consequences:** Both directions of blocking automatically suppress message visibility and transmission in `public.messages`.
+
+---
+
+## ADR 24: Pair-Level Match Reveal Gate via Mutual Connection Flags (`connections.user_a_revealed AND user_b_revealed`)
+- **Context:** Administrators control the live match reveal via `public.connections.user_a_revealed` and `public.connections.user_b_revealed`. The application was previously navigating users directly to `AppRoute.COUNTDOWN` regardless of connection flags, trapping students on the countdown timer even when the match was revealed.
+- **Decision:**
+  1. Update `matchmakingService.checkActiveMatch()` to query `public.connections` for the active `match_id` and compute `isRevealed = Boolean(connection.user_a_revealed && connection.user_b_revealed)`.
+  2. Update `AppShell` to dynamically route to `AppRoute.MATCH_REVEAL` when `isRevealed === true`, and `AppRoute.COUNTDOWN` when false.
+  3. Update `CountdownPage` to query reveal status on mount and auto-forward to `AppRoute.MATCH_REVEAL` if reveal status becomes true.
+- **Reason:** Binds frontend routing deterministically to authoritative database connection reveal flags and eliminates client-side timer traps.
+- **Consequences:** Setting both connection flags to true in Supabase immediately grants access to Page 24 for both students.
+
+---
+
+## ADR 25: Revealed Match Partner Access via Secure Projection View (`public.v_matched_profiles`)
+- **Context:** On Page 24 (Match Reveal / "It's a Match"), the application needs to display both the current student's profile and their revealed partner's profile. Direct invocation of `profileService.getProfile(partnerId)` failed because `public.profiles` RLS restricts reads strictly to `auth.uid() = id`, causing the partner frame to fall back to mock data or placeholder values.
+- **Decision:**
+  1. Query the secure database projection view `public.v_matched_profiles` (`id = activeMatch.partnerId`) for partner data instead of `public.profiles`.
+  2. Resolve the partner's primary photo URL from Supabase Storage bucket `profile-photos` using `primary_photo_path`.
+  3. Bind current user data from `useAuth().profile`.
+  4. Restrict `SAMPLE_MATCH_PROFILE` strictly to preview/sneak-peek contexts.
+- **Reason:** `public.v_matched_profiles` is specifically engineered with `WITH (security_barrier = true, security_invoker = false)` to project sanitized partner information without violating base profile RLS or exposing private telemetry (phone, weight, biometric selfies).
+- **Consequences:** Page 24 correctly renders real live data for both match participants.
+
 
 

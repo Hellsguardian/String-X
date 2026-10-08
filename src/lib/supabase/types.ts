@@ -227,6 +227,30 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['matches']['Row']>;
         Relationships: [];
       };
+      messages: {
+        Row: {
+          id: string;
+          match_id: string;
+          sender_user_id: string;
+          body: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          match_id: string;
+          sender_user_id: string;
+          body: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          match_id?: string;
+          sender_user_id?: string;
+          body?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       allowed_auth_emails: {
         Row: {
           email: string;

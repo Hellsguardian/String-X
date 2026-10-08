@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, ArrowRight, MessageCircle } from 'lucide-react';
 import { UserProfile } from '../../types';
-import { SAMPLE_MATCH_PROFILE } from '../../data/mockData';
 import { StringXLogo } from '../illustrations/GarbaIllustrations';
 
 interface MatchRevealScreenProps {
@@ -26,47 +25,70 @@ export const MatchRevealScreen: React.FC<MatchRevealScreenProps> = ({
   onBack,
   onSendMessage,
 }) => {
-  const match = partner || SAMPLE_MATCH_PROFILE;
+  const match = partner || {};
   const [isCtaPressed, setIsCtaPressed] = useState(false);
 
-  // Determine user & match gender dynamically
+  // Dynamic participant genders
+  const isUserFemale = profile.gender === 'Female';
+  const isPartnerFemale = (match as any).gender === 'Female';
   const isUserMale = profile.gender === 'Male';
+  const isPartnerMale = (match as any).gender === 'Male';
 
-  // Base photos matching the reference photography
+  // Base photos: strictly real photos with local neutral fallback (never random Unsplash humans)
+  const userDefaultPhoto = isUserMale ? '/assets/male.png' : '/assets/female.png';
+  const partnerDefaultPhoto = isPartnerMale ? '/assets/male.png' : '/assets/female.png';
+
   const userPhoto =
-    profile.faceVerificationPhoto ||
     profile.photoUrl ||
-    (isUserMale
-      ? 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=600&q=80'
-      : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80');
+    profile.faceVerificationPhoto ||
+    userDefaultPhoto;
 
   const matchPhoto =
     match.photoUrl ||
-    (isUserMale
-      ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80'
-      : 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=600&q=80');
+    partnerDefaultPhoto;
 
-  // Dynamic first names (uppercase for stickers)
+  // Dynamic first names (uppercase for stickers) - derived strictly from real full names (never hardcoded 'Arju'/'Aanya')
   const userFirstName = (
     profile.fullName?.trim().split(' ')[0] ||
-    (isUserMale ? 'Arju' : 'Aanya')
+    'MATCH'
   ).toUpperCase();
 
   const matchFirstName = (
-    ((match as any).nickname?.trim()) ||
-    ((match as any).name?.trim().split(' ')[0]) ||
     ((match as any).fullName?.trim().split(' ')[0]) ||
-    (isUserMale ? 'Aanya' : 'Arju')
+    ((match as any).name?.trim().split(' ')[0]) ||
+    ((match as any).nickname?.trim()) ||
+    'MATCH'
   ).toUpperCase();
 
-  // Strict Assignment matching reference:
-  // Left Card: Female / Girl (HOT PINK frame, name on upper-left)
-  // Right Card: Male / Boy (ELECTRIC PURPLE frame, name on upper-right)
-  const girlName = isUserMale ? matchFirstName : userFirstName;
-  const boyName = isUserMale ? userFirstName : matchFirstName;
+  // Strict Assignment matching reference & preserving gender symmetry:
+  // Card 1 (Left): Female / Girl (HOT PINK frame, name on upper-left)
+  // Card 2 (Right): Male / Boy (ELECTRIC PURPLE frame, name on upper-right)
+  let girlName: string;
+  let boyName: string;
+  let girlPhotoUrl: string;
+  let boyPhotoUrl: string;
 
-  const girlPhotoUrl = isUserMale ? matchPhoto : userPhoto;
-  const boyPhotoUrl = isUserMale ? userPhoto : matchPhoto;
+  if (isUserFemale && !isPartnerFemale) {
+    girlName = userFirstName;
+    girlPhotoUrl = userPhoto;
+    boyName = matchFirstName;
+    boyPhotoUrl = matchPhoto;
+  } else if (isPartnerFemale && !isUserFemale) {
+    girlName = matchFirstName;
+    girlPhotoUrl = matchPhoto;
+    boyName = userFirstName;
+    boyPhotoUrl = userPhoto;
+  } else if (isUserMale) {
+    girlName = matchFirstName;
+    girlPhotoUrl = matchPhoto;
+    boyName = userFirstName;
+    boyPhotoUrl = userPhoto;
+  } else {
+    girlName = userFirstName;
+    girlPhotoUrl = userPhoto;
+    boyName = matchFirstName;
+    boyPhotoUrl = matchPhoto;
+  }
 
   const handleCtaClick = () => {
     setIsCtaPressed(true);

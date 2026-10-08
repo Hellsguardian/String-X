@@ -10,7 +10,28 @@
 
 ## 1. Authentication Overview
 
-Authentication in STRING X is powered by **Supabase Auth** using **Google OAuth** as the primary authentication mechanism. The platform strictly enforces institutional enrollment: access is restricted to official Parul University student accounts (`@paruluniversity.ac.in`) alongside an administrative allowlist bypass (`public.allowed_auth_emails`) for developer, tester, and app-store review accounts.
+Authentication in STRING X is powered by **Supabase Auth** using **Google OAuth** as the primary authentication mechanism. 
+
+The platform architecture was originally designed with an institutional enrollment boundary: access restricted to official Parul University student accounts (`@paruluniversity.ac.in`) alongside an administrative allowlist bypass (`public.allowed_auth_emails`) for developer, tester, and app-store review accounts.
+
+> [!IMPORTANT]
+> ### PU EMAIL RESTRICTION: TEMPORARILY PAUSED
+> The institutional Parul University domain restriction is currently **TEMPORARILY PAUSED**.
+> 
+> - **Current Behavior:** Both the database authorization function `public.is_email_allowed(p_email)` and frontend `authService.isEmailPermitted(email)` accept any syntactically valid email format (`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`) regardless of domain (e.g., `@gmail.com`, `@outlook.com`).
+> - **Reason for Pause:** Documented in project history as a *temporary product/testing requirement*. The repository does not contain a more specific business justification.
+> - **What Remains Active & Unchanged:**
+>   - `handle_new_user()` trigger on `auth.users`
+>   - `handle_auth_user_email_sync()` trigger function
+>   - `on_auth_user_created` and `on_auth_user_email_updated` triggers
+>   - `public.allowed_auth_emails` table and administrative RLS
+>   - `public.profiles` stub creation on signup
+>   - All Row Level Security (RLS) policies
+>   - Google OAuth consent flow and callback handling
+> - **Implications for Accounts Created During the Pause:**
+>   When non-PU students register, `public.extract_enrollment_no()` returns `NULL`. In `public.profiles`, `enrollment_no` is nullable with a partial unique index, allowing multiple non-PU accounts to exist safely.
+>   **CRITICAL RESTORATION RULE:** Before re-enabling the PU-only restriction, all non-PU accounts created during the pause (`SELECT * FROM public.profiles WHERE enrollment_no IS NULL`) must be audited. Any external accounts permitted to retain access must be inserted into `public.allowed_auth_emails` to prevent immediate lockout.
+> - **Restoration Procedure:** Follow the canonical guide in [`docs/STRINGX_PU_EMAIL_RESTRICTION.md`](file:///d:/coder_cave/projects/string%20X/docs/STRINGX_PU_EMAIL_RESTRICTION.md) to restore `is_email_allowed()` from migration [`20261002000001_auth_email_allowlist.sql`](file:///d:/coder_cave/projects/string%20X/supabase/migrations/20261002000001_auth_email_allowlist.sql).
 
 *(Historical Note: Early prototype iterations implemented passwordless SMS Phone OTP. Phone authentication is currently locked in the UI and retained strictly as legacy/prototype reference).*
 
@@ -38,8 +59,8 @@ The system enforces a strict state machine distinguishing 4 user states:
                           handle_new_user() Trigger
                                      ↓
                       is_email_allowed(auth.users.email)?
-                     ├── NO  → Sign out + Auth Error Modal
-                     └── YES → Extract enrollment_no + Seed profiles stub
+                     ├── NO  (Invalid Syntax) → Sign out + Auth Error Modal
+                     └── YES (Standard Email) → Extract enrollment_no + Seed profiles stub
                                      ↓
                          AuthContext Session Listener
                                      ↓
@@ -93,7 +114,7 @@ sequenceDiagram
     Landing->>Google: authService.signInWithGoogle()
     Google-->>DB: Inserts into auth.users on OAuth consent
     DB->>DB: handle_new_user() checks is_email_allowed()
-    DB->>DB: Extracts enrollment_no and inserts public.profiles stub
+    DB->>DB: Extracts enrollment_no (or NULL if non-PU) and inserts public.profiles stub
     Google-->>Auth: Redirects back with valid session
     Auth->>Auth: loadUserProfile(user.id)
     Auth->>Onboarding: Routes to Step 01 (Name & Gender, Screen 03)
@@ -107,15 +128,18 @@ sequenceDiagram
 
 ---
 
-### CASE 3: Non-University / Unauthorized Email Rejection
-1. Visitor attempts Google Sign-In with an unauthorized personal account (e.g. `user@gmail.com`).
-2. Post-redirect, `AuthContext` and `handle_new_user()` evaluate `authService.isEmailPermitted(email)`.
-3. The email fails both the official Parul University regex (`^[0-9]+@paruluniversity\.ac\.in$`) and allowlist lookup in `public.allowed_auth_emails`.
-4. `authService.signOut()` is executed immediately.
-5. `AuthContext` sets `authError` notice:
-   - **Title:** `"Parul University Account Required"`
-   - **Message:** `"StringX is currently available only to Parul University students and approved developer accounts. Please sign in with your Parul University Google account."`
-6. Application returns cleanly to **Screen 01 (`LandingPage`)** displaying the branded error modal.
+### CASE 3: Email Rejection & Error Handling
+1. **Under Current Temporary State:**
+   - Syntactically valid email addresses from any domain pass authentication.
+   - Malformed, empty, or non-email strings are rejected by `public.is_email_allowed()` (trigger transaction rollback) and `authService.isEmailPermitted()`.
+2. **Under Restored Institutional Policy:**
+   - If visitor signs in with an external account not listed in `public.allowed_auth_emails`:
+   - `handle_new_user()` raises an exception and rolls back the `auth.users` insertion.
+   - `AuthContext` executes `authService.signOut()`.
+   - `AuthContext` presents the branded error modal:
+     - **Title:** `"Parul University Account Required"`
+     - **Message:** `"StringX is currently available only to Parul University students and approved developer accounts. Please sign in with your Parul University Google account."`
+   - Application returns cleanly to **Screen 01 (`LandingPage`)**.
 
 ---
 

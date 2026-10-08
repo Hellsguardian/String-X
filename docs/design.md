@@ -108,3 +108,22 @@ STRING X relies on sharp, high-contrast borders and solid offset drop shadows ra
   - Phone speaker notch simulated at top.
   - Floating background stickers and statement text rendered on large monitors ($\ge$ 1280px / xl).
 - **Scrollbar Elimination:** Custom `.no-scrollbar` utility prevents unsightly desktop and mobile scrollbars from breaking card layouts.
+
+---
+
+## 8. Match Reveal & Messaging Visual Aesthetic
+
+### Screen 24: Match Reveal ("It's a Match!")
+- **Aesthetic Theme:** Atmospheric night celebration with festive ambient gradients on dark plum surface (`#160624`).
+- **Dual Photo Frames:** Side-by-side or overlapping card portraits with rounded frames, high-contrast borders, and glowing pink connecting string elements.
+- **Badges & Vibe Tags:** Floating compatibility percentage badge and chip tags for mutual college, department, and festival interests.
+- **Primary Action CTA:** Full-width tactile electric purple button (`#894EFF`) labeled "Send a Message" with active mechanical offset shadow feedback.
+
+### Screen 25: 1-to-1 Campus Chat
+- **Atmospheric Background:** Custom illustrated `<CampusNightChatBackground />` representing campus architecture under evening festival lights.
+- **Frosted Header Bar:** Deep plum translucent navigation header (`bg-[#251436]/90 backdrop-blur-md`) with subtle border, back button, partner avatar with emerald active dot (`#08A98D`), and partner metadata.
+- **Message Bubble System:**
+  - **User Bubbles:** Electric purple (`bg-[#894EFF]`), crisp white text, timestamp, and green double-check icon (`#08A98D`). Rounded corners with `rounded-br-xs`.
+  - **Partner Bubbles:** Deep plum (`bg-[#1B0B2A]` with `border border-[#894EFF]/30`), soft lavender text, and timestamp. Rounded corners with `rounded-bl-xs`.
+- **Suggested Starter Chips:** Tactile icebreaker chips shown in empty conversations for quick conversation kickoff.
+- **Message Composer:** Bottom-anchored frosted bar with rounded pill input and circular purple send button.

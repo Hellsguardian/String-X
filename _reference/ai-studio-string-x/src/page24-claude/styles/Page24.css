@@ -1,0 +1,765 @@
+/*
+ * Page24 — Match Reveal ("Strings attached") — scoped styles.
+ *
+ * Every selector is prefixed with .p24-  so nothing here can leak into the
+ * host application. There are NO element/global selectors (body, h1, button,
+ * img …). Keyframe names are prefixed with p24- for the same reason.
+ *
+ * The design is authored on a fixed 390 × 844 stage (.p24-stage). All values
+ * below are copied 1:1 from the finalized design source. The stage is scaled
+ * uniformly to the device viewport by Page24.tsx (see useStageScale).
+ */
+
+/* ───────────────────────── Fit container (outside the stage) ───────────── */
+
+.p24-root {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  /* Letterbox fill: sky lavender above the stage, night purple below it. */
+  background: linear-gradient(180deg, #C9BEF5 0%, #C9BEF5 50%, #1C0F30 50%, #1C0F30 100%);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Default: owns the full viewport height; does not rely on host html/body height. */
+.p24-root--fullscreen {
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+}
+
+/* Alternative: fill whatever box the host gives it. */
+.p24-root--fill {
+  height: 100%;
+}
+
+.p24-fit {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+.p24-stage-box {
+  position: relative;
+  flex: none;
+  margin: 0;
+}
+
+/* ───────────────────────── Mobile layout (width-driven scaling) ────────── */
+
+@media (max-width: 639px) {
+  .p24-root {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .p24-root::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  .p24-fit {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+  }
+
+  .p24-stage-box {
+    margin: 0;
+    flex: none;
+  }
+}
+
+.p24-stage-box--measuring {
+  visibility: hidden;
+}
+
+/* ───────────────────────── The 390 × 844 stage ─────────────────────────── */
+
+.p24-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 390px;
+  height: 844px;
+  overflow: hidden;
+  transform-origin: 0 0;
+  background: #1C0F30;
+  font-family: 'P24 Plus Jakarta Sans', system-ui, sans-serif;
+  color: #FFFFFF;
+  /* Neutralise anything the host may have set on ancestors. */
+  font-size: 16px;
+  font-weight: 400;
+  font-style: normal;
+  line-height: normal;
+  letter-spacing: normal;
+  text-align: left;
+  text-transform: none;
+  text-indent: 0;
+  white-space: normal;
+  word-spacing: normal;
+  direction: ltr;
+}
+
+/* Source was authored with the browser default box model; pin it so a host
+   rule like `*, *::before, *::after { box-sizing: border-box }` changes nothing.
+   Elements that were border-box in the source opt back in below. */
+.p24-stage *,
+.p24-stage *::before,
+.p24-stage *::after {
+  box-sizing: content-box;
+}
+
+/* ───────────────────────── Background art ──────────────────────────────── */
+
+.p24-sky,
+.p24-gate {
+  position: absolute;
+  left: -21px;
+  top: var(--p24-bg-top, var(--p24-gate-top, -36px));
+  width: 428px;
+  height: 654px;
+}
+
+.p24-rope {
+  position: absolute;
+  left: 0;
+  top: var(--p24-rope-top, 0px);
+  width: 390px;
+  height: 420px;
+}
+
+.p24-sky > svg,
+.p24-gate > svg,
+.p24-rope > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  overflow: hidden;
+}
+
+.p24-rope-flow {
+  animation: p24-flow 3.2s linear infinite;
+}
+
+/* ───────────────────────── Header ──────────────────────────────────────── */
+
+.p24-header {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: max(var(--p24-header-top, 18px), env(safe-area-inset-top, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.p24-back {
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: #FFFFFF;
+  border: 2px solid #1E1033;
+  box-shadow: 2px 2px 0 #1E1033;
+  color: #1E1033;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font: inherit;
+  line-height: normal;
+  -webkit-appearance: none;
+  appearance: none;
+  outline-offset: 2px;
+}
+
+.p24-logo {
+  font-weight: 800;
+  font-size: 19px;
+  letter-spacing: 0.5px;
+  color: #1E1033;
+}
+
+.p24-logo-x {
+  color: #FF2D87;
+}
+
+.p24-header-spacer {
+  width: 44px;
+}
+
+.p24-icon {
+  display: flex;
+  flex: none;
+}
+
+.p24-icon > svg {
+  display: block;
+  max-width: none;
+}
+
+.p24-icon--back {
+  width: 20px;
+  height: 20px;
+}
+
+.p24-icon--arrow {
+  width: 18px;
+  height: 18px;
+}
+
+/* ───────────────────────── Hanging polaroids ───────────────────────────── */
+
+.p24-polaroid {
+  position: absolute;
+  top: var(--p24-polaroid-top, 140px);
+  width: 142px;
+  transform-origin: 50% -14px;
+  will-change: transform;
+}
+
+.p24-polaroid--current {
+  left: 34px;
+  animation: p24-sway-a 4.2s ease-in-out infinite;
+}
+
+.p24-polaroid--match {
+  left: 214px;
+  animation: p24-sway-b 4.8s ease-in-out infinite;
+}
+
+.p24-polaroid-frame {
+  position: relative;
+  background: #FFFFFF;
+  border: 2px solid #1E1033;
+  border-radius: 6px;
+  padding: 9px 9px 0;
+  box-sizing: border-box;
+  box-shadow: 0 16px 30px rgba(14, 6, 24, 0.45), 4px 4px 0 #1E1033;
+}
+
+.p24-polaroid-photo {
+  position: relative;
+  width: 122px;
+  height: 134px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #2E1A4A;
+}
+
+.p24-polaroid-img,
+.p24-polaroid-placeholder {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.p24-polaroid-img {
+  display: block;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  object-fit: cover;
+}
+
+.p24-polaroid-placeholder > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+.p24-polaroid-sheen {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 40%);
+}
+
+.p24-polaroid-caption {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.p24-name-pill {
+  font-size: 13px;
+  font-weight: 800;
+  padding: 3px 11px;
+  border-radius: 999px;
+  border: 1.5px solid #1E1033;
+  /* Safety for long names: never wider than the polaroid strip. */
+  max-width: 98px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.p24-name-pill--current {
+  background: #FFFFFF;
+  color: #1E1033;
+}
+
+.p24-name-pill--match {
+  background: #FF2D87;
+  color: #FFFFFF;
+}
+
+.p24-year-badge {
+  position: absolute;
+  top: 114px;
+  width: 52px;
+  height: 46px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: #FFFFFF;
+  border: 2px solid #1E1033;
+  box-shadow: 3px 3px 0 #1E1033;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.p24-year-badge--current {
+  left: -14px;
+  transform: rotate(-8deg);
+}
+
+.p24-year-badge--match {
+  right: -14px;
+  transform: rotate(8deg);
+}
+
+.p24-year-value {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.p24-year-badge--current .p24-year-value {
+  color: #7C4DFF;
+}
+
+.p24-year-badge--match .p24-year-value {
+  color: #D61F6E;
+}
+
+.p24-year-caption {
+  font-family: 'P24 JetBrains Mono', monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #1E1033;
+  margin-top: 3px;
+}
+
+.p24-clothespin {
+  position: absolute;
+  left: 63px;
+  top: -20px;
+  width: 16px;
+  height: 34px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  background: #FFC93C;
+  border: 2px solid #1E1033;
+  box-shadow: 2px 2px 0 rgba(14, 6, 24, 0.35);
+}
+
+.p24-clothespin-spring {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 13px;
+  height: 4px;
+  border-radius: 2px;
+  background: #1E1033;
+}
+
+/* ───────────────────────── Bottom sheet ────────────────────────────────── */
+
+.p24-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--p24-sheet-h, 304px);
+  background: #1C0F30;
+  border-radius: 28px 28px 0 0;
+}
+
+.p24-sticker {
+  position: absolute;
+  left: 36px;
+  right: 36px;
+  top: var(--p24-sticker-top, 506px);
+  background: #FFFFFF;
+  color: #1E1033;
+  border: 2px solid #1E1033;
+  border-radius: 20px;
+  box-shadow: 6px 6px 0 #0E0618;
+  transform: rotate(-3deg);
+  padding: 24px 16px 16px;
+  text-align: center;
+}
+
+.p24-sticker-tag {
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  margin-left: -78px;
+  width: 156px;
+  background: #FF2D87;
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  padding: 5px 0;
+  border-radius: 8px;
+  border: 2px solid #1E1033;
+  transform: rotate(4deg);
+}
+
+.p24-sticker-title {
+  font-size: 28px;
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+}
+
+.p24-sticker-accent {
+  color: #7C4DFF;
+}
+
+.p24-sticker-sub {
+  font-size: 12.5px;
+  color: #4B3D66;
+  margin-top: 8px;
+  font-weight: 600;
+}
+
+.p24-actions {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: var(--p24-actions-top, 674px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+  z-index: 5;
+}
+
+.p24-action-btn {
+  box-sizing: border-box;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: transform 0.12s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  outline-offset: 3px;
+}
+
+/* X Button: neutral/light surface, dark purple X icon, subtle border, subtle shadow */
+.p24-action-btn--reject {
+  background: #FFFFFF;
+  color: #1E1033;
+  border: 1.5px solid rgba(124, 77, 255, 0.2);
+  box-shadow: 0 4px 12px rgba(30, 16, 51, 0.08);
+}
+
+.p24-action-btn--reject:hover {
+  background: #FAF7FE;
+  border-color: rgba(124, 77, 255, 0.35);
+  box-shadow: 0 6px 14px rgba(30, 16, 51, 0.12);
+}
+
+.p24-action-btn--reject:active {
+  transform: scale(0.95);
+  box-shadow: 0 2px 6px rgba(30, 16, 51, 0.06);
+}
+
+.p24-action-btn--reject:focus-visible {
+  outline: 3px solid #7C4DFF;
+}
+
+/* Check Button: String X purple accent treatment, white check icon, subtle border/shadow */
+.p24-action-btn--accept {
+  background: linear-gradient(135deg, #8A5CFF 0%, #703BEF 100%);
+  color: #FFFFFF;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 14px rgba(124, 77, 255, 0.38);
+}
+
+.p24-action-btn--accept:hover {
+  background: linear-gradient(135deg, #956BFF 0%, #7945F5 100%);
+  box-shadow: 0 6px 18px rgba(124, 77, 255, 0.48);
+}
+
+.p24-action-btn--accept:active {
+  transform: scale(0.95);
+  box-shadow: 0 2px 8px rgba(124, 77, 255, 0.3);
+}
+
+.p24-action-btn--accept:focus-visible {
+  outline: 3px solid #FFC93C;
+}
+
+.p24-action-icon {
+  display: block;
+  pointer-events: none;
+}
+
+/* ───────────────────────── Reject confirmation modal ────────────────────── */
+
+.p24-modal-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(14, 6, 24, 0.76);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: p24FadeIn 0.18s ease-out;
+}
+
+.p24-modal-card {
+  box-sizing: border-box;
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  background: #1C0F30;
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  border-radius: 24px;
+  padding: 26px 20px 22px;
+  text-align: center;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(124, 77, 255, 0.15);
+  animation: p24PopIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.p24-modal-icon-badge {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #FF8F8F;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
+.p24-modal-title {
+  margin: 0 0 8px;
+  font-family: 'P24 Syne', sans-serif;
+  font-size: 19px;
+  font-weight: 700;
+  color: #FFFFFF;
+  line-height: 1.3;
+}
+
+.p24-modal-desc {
+  margin: 0 0 22px;
+  font-family: 'P24 Plus Jakarta Sans', sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.p24-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.p24-modal-btn {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 0 16px;
+  border-radius: 14px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: 'P24 Plus Jakarta Sans', sans-serif;
+  transition: transform 0.1s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.p24-modal-btn:active {
+  transform: scale(0.98);
+}
+
+.p24-modal-btn--keep {
+  height: 48px;
+  background: #7C4DFF;
+  color: #FFFFFF;
+  font-weight: 600;
+  font-size: 15px;
+  border: none;
+  box-shadow: 0 4px 14px rgba(124, 77, 255, 0.38);
+}
+
+.p24-modal-btn--keep:hover {
+  background: #8A5CFF;
+}
+
+.p24-modal-btn--pass {
+  height: 42px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+  font-size: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.p24-modal-btn--pass:hover {
+  color: #FF6B6B;
+  border-color: rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.08);
+}
+
+@keyframes p24FadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes p24PopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.p24-cta-wrap {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: max(var(--p24-cta-bottom, 20px), env(safe-area-inset-bottom, 0px));
+}
+
+/* The source used an <a> (content-box: 58px + 2×2px border = 62px tall,
+   full 350px width). Rendered here as a <button>, so the outer size is set
+   explicitly with border-box to land on exactly the same box. */
+.p24-cta {
+  box-sizing: border-box;
+  width: 100%;
+  height: 62px;
+  margin: 0;
+  padding: 0;
+  border-radius: 16px;
+  background: #7C4DFF;
+  color: #FFFFFF;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: normal;
+  letter-spacing: normal;
+  border: 2px solid #0E0618;
+  box-shadow: 0 5px 0 #0E0618;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  outline-offset: 3px;
+}
+
+.p24-back:focus-visible,
+.p24-cta:focus-visible {
+  outline: 3px solid #FFC93C;
+}
+
+/* ───────────────────────── Motion ──────────────────────────────────────── */
+
+@keyframes p24-sway-a {
+  0%, 100% { transform: rotate(-5deg); }
+  50% { transform: rotate(-1.5deg); }
+}
+
+@keyframes p24-sway-b {
+  0%, 100% { transform: rotate(4.5deg); }
+  50% { transform: rotate(1deg); }
+}
+
+@keyframes p24-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -560; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .p24-polaroid--current,
+  .p24-polaroid--match,
+  .p24-rope-flow {
+    animation: none !important;
+  }
+}

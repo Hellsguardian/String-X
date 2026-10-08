@@ -18,7 +18,7 @@ STRING X handles sensitive student identity data, verified emails and enrollment
   │  Tier 1: Network & Origin (TLS 1.3, Vite CSP, CORS)                    │
   │  Tier 2: Identity (Google OAuth @paruluniversity.ac.in, Allowlist)     │
   │  Tier 3: Storage Isolation (Public CDN vs Strictly Private S3 bucket)  │
-  │  Tier 4: Relational RLS (All 18 tables enforce Row Level Security)     │
+  │  Tier 4: Relational RLS (All 19 tables enforce Row Level Security)     │
   │  Tier 5: Column-Level Security (CLS: server-controlled columns revoked)│
   │  Tier 6: Secure Projections & RPCs (v_matched_profiles & atomics)      │
   └────────────────────────────────────────────────────────────────────────┘
@@ -26,11 +26,11 @@ STRING X handles sensitive student identity data, verified emails and enrollment
 
 ---
 
-## 2. Admin Authorization Architecture
+## 2. Security Functions & Admin Authorization
 
-STRING X enforces a robust server-controlled admin authorization layer:
+STRING X enforces server-controlled authorization and security helper functions:
 
-### 2.1 Dedicated Authorization Controls
+### 2.1 Dedicated Authorization Controls (`public.is_admin()`)
 - **No Client Boolean Trust:** The backend NEVER trusts frontend booleans (such as `is_admin = true`) or user-editable profile columns.
 - **`admin_users` Registry:** Table `public.admin_users` stores authorized administrator IDs (`super_admin`, `admin`, `moderator`).
 - **JWT `app_metadata` Integration:** Supports verified server-assigned claims in `auth.jwt() -> 'app_metadata' ->> 'role'`. Normal users can never mutate `app_metadata`.
@@ -50,6 +50,38 @@ STRING X enforces a robust server-controlled admin authorization layer:
     );
   $$;
   ```
+
+### 2.2 Bi-Directional Block Exclusion Helper (`public.is_pair_blocked()`)
+To protect match messaging without exposing bidirectional block state directly to client queries:
+```sql
+CREATE OR REPLACE FUNCTION public.is_pair_blocked(
+    p_user_a UUID,
+    p_user_b UUID
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+    SELECT CASE
+        WHEN auth.uid() IS NULL
+             OR (auth.uid() <> p_user_a AND auth.uid() <> p_user_b)
+        THEN false
+        ELSE EXISTS (
+            SELECT 1
+            FROM public.user_blocks
+            WHERE
+                (blocker_id = p_user_a AND blocked_id = p_user_b)
+                OR
+                (blocker_id = p_user_b AND blocked_id = p_user_a)
+        )
+    END;
+$$;
+```
+- **Participant Scope Guard:** Returns `false` unconditionally if `auth.uid()` is not a participant (`auth.uid() <> p_user_a AND auth.uid() <> p_user_b`), preventing arbitrary block probing via Supabase RPC.
+- **SECURITY DEFINER Isolation:** Bypasses single-direction RLS on `public.user_blocks` so that mutual blocking excludes messages even if the other participant initiated the block.
+- **Privilege Model:** Executable strictly by `authenticated`, revoked from `PUBLIC` and `anon`.
 
 ---
 
@@ -109,6 +141,7 @@ GRANT UPDATE (
 - `profiles.email` and `profiles.enrollment_no` are populated directly from `auth.users` on signup.
 - Trigger `trg_enforce_profile_email_identity` prevents client update attempts from spoofing or altering institutional email addresses.
 - `public.allowed_auth_emails` is accessible strictly to administrators via `public.is_admin()`.
+- **PU EMAIL RESTRICTION: TEMPORARILY PAUSED:** The domain-level restriction (`@paruluniversity.ac.in`) has been temporarily paused for testing/product requirements. Currently, any standard valid email format is accepted at registration while triggers and email identity synchronization remain strictly active.
 
 ### 4.4 Geolocation Telemetry Privacy (`public.verification`)
 - Geolocation coordinates (`latitude`, `longitude`, `accuracy_m`) are captured exclusively during live selfie submission as a secondary fraud signal.
@@ -159,6 +192,9 @@ $$\text{effective\_reveal} = \text{admin\_reveal} \lor \text{user\_a.is\_premium
 | `user_blocks` | Blocker control | `authenticated` | `auth.uid() = blocker_id OR public.is_admin()` | Students manage their own block lists. |
 | `user_reports` | Reporter submit | `authenticated` | `auth.uid() = reporter_id` | Submissions restricted to caller's identity. |
 | `user_reports` | Admin moderation | `authenticated` | `public.is_admin()` | Admins view and resolve moderation flags. |
+| `messages` | Participant read | `authenticated` | `EXISTS (matches: active, revealed, participant, is_pair_blocked = false)` | Reading 1-to-1 match chat. |
+| `messages` | Author insert | `authenticated` | `auth.uid() = sender_user_id AND EXISTS (matches: active, revealed, participant, is_pair_blocked = false)` | Inserting 1-to-1 match messages. |
+| `messages` | Deny update / delete | `authenticated` | *No UPDATE / DELETE policies* | Enforces append-only immutable message history. |
 
 ---
 

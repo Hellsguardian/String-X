@@ -4,7 +4,7 @@ This document provides the visual and structural Entity-Relationship Diagram (ER
 
 ---
 
-## 1. Complete System ERD (18 Physical Tables + 3 Projection Views)
+## 1. Complete System ERD (19 Physical Tables + 3 Projection Views)
 
 ```mermaid
 erDiagram
@@ -43,6 +43,9 @@ erDiagram
     profiles ||--o{ user_blocks : "blocked by (blocked)"
     profiles ||--o{ user_reports : "reports (reporter)"
     profiles ||--o{ user_reports : "reported (reported)"
+
+    matches ||--o{ messages : "contains (1:N)"
+    profiles ||--o{ messages : "authors (1:N)"
 
     %% =========================================================================
     %% ENTITY DEFINITIONS
@@ -305,6 +308,14 @@ erDiagram
         text moderator_notes
         timestamptz created_at
         timestamptz resolved_at
+    }
+
+    messages {
+        uuid id PK "gen_random_uuid()"
+        uuid match_id FK "References matches.id ON DELETE CASCADE"
+        uuid sender_user_id FK "References profiles.id ON DELETE CASCADE"
+        text body "1-2000 chars (trimmed, Unicode/emojis)"
+        timestamptz created_at "now()"
     }
 ```
 

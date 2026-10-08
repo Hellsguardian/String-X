@@ -364,7 +364,12 @@ export const AppShell: React.FC = () => {
                   // 4. Evaluate database registration result
                   if (regRes.data?.isCompleted) {
                     if (regRes.data.matchedWith) {
-                      navigateTo(AppRoute.COUNTDOWN);
+                      const matchRes = await matchmakingService.checkActiveMatch(targetUserId);
+                      if (matchRes.data?.isRevealed === true) {
+                        navigateTo(AppRoute.MATCH_REVEAL);
+                      } else {
+                        navigateTo(AppRoute.COUNTDOWN);
+                      }
                     } else {
                       navigateTo(AppRoute.SUCCESS);
                     }

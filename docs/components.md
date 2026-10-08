@@ -68,16 +68,44 @@
 
 ---
 
-## 3. Screen Views & Modals
+## 3. Screen Presentation Components & Modals (`src/components/screens/`)
+
+### `CountdownScreen.tsx` (Screen 23)
+- **File:** `src/components/screens/CountdownScreen.tsx`
+- **Purpose:** Presentation screen for the Navratri reveal countdown ticker.
+- **Responsibilities:**
+  - Displays dynamic countdown timer (days, hours, minutes, seconds).
+  - Renders locked match card status ("String attached. Preparing reveal...").
+  - Provides header navigation back to Home or to Profile settings.
+  - Exposes `onRevealMatch` CTA when pair reveal is activated.
+
+### `MatchRevealScreen.tsx` (Screen 24)
+- **File:** `src/components/screens/MatchRevealScreen.tsx`
+- **Purpose:** Presentation screen for the revealed match ("It's a Match!").
+- **Responsibilities:**
+  - Renders dual photo frames: Frame A for current student (`profile`), Frame B for matched partner (`partner`).
+  - Displays partner's real name, course, university, compatibility percentage badge, and mutual highlights.
+  - Provides "Send a Message" primary CTA triggering `onSendMessage()` (handoff to Page 25 / `MessagingPage`).
+  - Provides back navigation to Countdown / Home.
+
+### `MessagingScreen.tsx` (Screen 25)
+- **File:** `src/components/screens/MessagingScreen.tsx`
+- **Purpose:** Presentation screen for 1-to-1 match chat.
+- **Responsibilities:**
+  - Renders illustrated `<CampusNightChatBackground />`.
+  - Header displays partner avatar, online green dot, verified partner name, and option menu.
+  - Chronological message bubble list with timestamp formatting and user double-check delivery indicators.
+  - Empty conversation starter chips ("Suggested Starters") that pre-populate the input composer on click.
+  - Sticky bottom message input composer with in-flight send state and error alerts.
+  - Automatic smooth scroll to the newest message via ref.
 
 ### `NotificationPanel` (Page 12)
 - **Location:** Inside `HomePage.tsx` header.
-- **Behavior:** Renders an animated slide-over panel.
-- **Initial State:** Initial notification count is **0** with an empty state ("You're all caught up! ✨") and zero demo/fake notifications.
+- **Behavior:** Renders an animated slide-over panel. Initial notification count is **0** with an empty state ("You're all caught up! ✨") and zero demo/fake notifications.
 
 ### `MatchRevealModal` (Page 23)
 - **Location:** Rendered inside `CountdownPage.tsx`.
-- **Behavior:** Revealed when match pairing is active and effectively revealed. Displays partner's photo, name, course, hostel, compatibility score, shared vibes, and verified Instagram handle.
+- **Behavior:** Modal display of match summary used during preview or countdown reveal. Displays partner's photo, name, course, hostel, compatibility score, shared vibes, and verified Instagram handle.
 
 ---
 

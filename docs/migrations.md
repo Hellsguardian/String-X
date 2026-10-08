@@ -29,6 +29,7 @@ The migrations are ordered sequentially, establishing dependencies cleanly from 
 | **14** | [`20261004000001_unified_verification_system.sql`](file:///d:/coder_cave/projects/string%20X/supabase/migrations/20261004000001_unified_verification_system.sql) | Unified verification subsystem: Creates `public.verification` table with multi-attempt index (`user_id, created_at DESC, id DESC`), grandfathering migration of legacy profile verifications, drops `face_verified_at` and `verification_rejection_reason` from `profiles`, recreates `v_admin_users` projecting latest verification telemetry, defines `submit_face_verification` with geolocation telemetry, adds `submit_dp_verification(UUID)`, updates `complete_student_onboarding`, and updates `admin_verify_user`. | Transactional / Idempotent |
 | **15** | [`20261005000001_verification_state_enum_and_sync.sql`](file:///d:/coder_cave/projects/string%20X/supabase/migrations/20261005000001_verification_state_enum_and_sync.sql) | Verification state enum conversion: Creates `public.verification_state` ENUM (`pending`, `verified`, `rejected`), converts `verification_status`, `dp`, and `face` columns from `TEXT` to `verification_state`, establishes initial `trg_sync_verification_states` trigger, and updates verification RPCs with enum casts. | Transactional |
 | **16** | [`20261005000002_verification_bidirectional_sync.sql`](file:///d:/coder_cave/projects/string%20X/supabase/migrations/20261005000002_verification_bidirectional_sync.sql) | Bidirectional verification synchronization & profile propagation: Drops restrictive `chk_verification_status_invariants` constraint, normalizes existing verification rows, redefines `sync_verification_states()` BEFORE trigger for intuitive Table Editor moderation, adds `sync_verification_to_profiles()` AFTER trigger updating `profiles.verification_status` from the latest attempt, and executes one-time profile reconciliation. | Transactional |
+| **17** | [`20261006000001_messages_schema.sql`](file:///d:/coder_cave/projects/string%20X/supabase/migrations/20261006000001_messages_schema.sql) | Direct 1-to-1 messaging subsystem: Creates `public.messages` table, `chk_messages_body` constraint (1–2000 chars, non-whitespace, full Unicode/emojis), `idx_messages_match_created_at` performance index, `public.is_pair_blocked()` `SECURITY DEFINER` function with caller participant guard, RLS policies for active revealed unblocked match participants, and registers table in `supabase_realtime` publication. | **Additive** |
 
 ---
 
@@ -56,7 +57,7 @@ The migrations are ordered sequentially, establishing dependencies cleanly from 
    ```
 
 #### Option B: Using the Supabase SQL Editor
-Execute the SQL files **strictly in numerical sequence from 01 through 16**:
+Execute the SQL files **strictly in numerical sequence from 01 through 17**:
 1. `20260927000001_core_schema.sql`
 2. `20260927000002_events.sql`
 3. `20260927000003_matchmaking.sql`
@@ -73,6 +74,7 @@ Execute the SQL files **strictly in numerical sequence from 01 through 16**:
 14. `20261004000001_unified_verification_system.sql`
 15. `20261005000001_verification_state_enum_and_sync.sql`
 16. `20261005000002_verification_bidirectional_sync.sql`
+17. `20261006000001_messages_schema.sql`
 
 ---
 
@@ -88,3 +90,17 @@ After applying migrations, verify each core capability:
 7. **Email Allowlist Enforcement:** Attempt to authenticate with a non-university email not present in `allowed_auth_emails`; verify rejection by `handle_new_user()`.
 8. **Platform Statistics Realtime:** Insert a new profile; verify `platform_statistics.total_profiles` increments atomically and broadcasts via Supabase Realtime.
 9. **Verification State Bidirectional Sync:** Update `dp` or `face` in `public.verification`; verify `verification_status` updates automatically via `trg_sync_verification_states`, and `profiles.verification_status` updates via `trg_sync_verification_to_profiles`.
+10. **Messaging Authorization & Realtime:** Attempt to insert a message into an unrevealed match; verify RLS rejection. Verify `is_pair_blocked()` returns `false` for third-party callers. Verify `supabase_realtime` broadcasts message `INSERT` events.
+
+---
+
+## 4. Architectural Distinction: Database Migrations vs Frontend Changes
+
+It is vital to distinguish between **PostgreSQL schema migrations** and **Frontend application logic updates**:
+
+| Change Domain | Typical Mechanism | String X Architectural Examples |
+|---|---|---|
+| **Database Migration** | Committed `.sql` file in `supabase/migrations/` modifying tables, views, RLS, functions, or triggers | - `20261006000001_messages_schema.sql` (`public.messages`, `is_pair_blocked`)<br>- `20261005000002_verification_bidirectional_sync.sql` |
+| **Frontend Application Logic** | React components (`src/pages/`, `src/components/`, `src/services/`, `src/app/AppShell.tsx`) | - **Match Reveal Navigation Gate:** Reading `connections.user_a_revealed && connections.user_b_revealed` in `matchmakingService.ts` and routing to `AppRoute.MATCH_REVEAL` vs `AppRoute.COUNTDOWN`.<br>- **Page 24 Real Partner Binding:** Querying existing projection view `public.v_matched_profiles` from `MatchRevealPage.tsx` and loading photo from storage bucket.<br>- **Temporary PU Email Restriction Pause:** Frontend validation regex in `authService.isEmailPermitted()`. |
+
+Frontend routing and data binding fixes must **NEVER** be conflated with or documented as database migrations.
