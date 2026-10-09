@@ -1,6 +1,11 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Plus, X, Pencil } from 'lucide-react';
+import { Plus, X, Pencil, Loader2 } from 'lucide-react';
+import {
+  optimizeProfilePhoto,
+  blobToDataUrl,
+  ImageOptimizationError,
+} from '../../utils/imageOptimization';
 
 interface PhotoPickerProps {
   value?: string;
@@ -16,6 +21,10 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [draggedSlot, setDraggedSlot] = useState<number | null>(null);
+  // Slot currently being optimized (blocks interaction until done)
+  const [processingSlot, setProcessingSlot] = useState<number | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
 
   // Normalize secondary photos to exactly 3 slots
   const secondaryPhotos = [
@@ -24,7 +33,21 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
     additionalPhotos[2] || '',
   ];
 
+  // Latest props, read after async optimization completes
+  const latestRef = useRef({ value, secondaryPhotos });
+  latestRef.current = { value, secondaryPhotos };
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const isProcessing = processingSlot !== null;
+
   const handleOpenPicker = (slotIndex: number) => {
+    if (isProcessing) return;
     setActiveSlot(slotIndex);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -32,26 +55,43 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
     }
   };
 
-  const handleFileProcess = (file: File, slotIndex: number) => {
-    if (!file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      if (typeof e.target?.result === 'string') {
-        const newPhotoUrl = e.target.result;
-        if (slotIndex === 0) {
-          onChange(newPhotoUrl, secondaryPhotos);
-        } else {
-          const updatedSecondary = [...secondaryPhotos];
-          updatedSecondary[slotIndex - 1] = newPhotoUrl;
-          onChange(value, updatedSecondary);
-        }
+  // Optimize first (decode with orientation, proportional resize, no crop,
+  // metadata stripped, WebP/JPEG). Only the optimized image is passed forward;
+  // the original File is never handed to onChange or uploaded.
+  const handleFileProcess = async (file: File, slotIndex: number) => {
+    if (isProcessing) return;
+    setPhotoError(null);
+    setProcessingSlot(slotIndex);
+    try {
+      const optimizedBlob = await optimizeProfilePhoto(file);
+      const newPhotoUrl = await blobToDataUrl(optimizedBlob);
+      if (!isMountedRef.current) return;
+
+      const { value: currentValue, secondaryPhotos: currentSecondary } = latestRef.current;
+      if (slotIndex === 0) {
+        onChange(newPhotoUrl, currentSecondary);
+      } else {
+        const updatedSecondary = [...currentSecondary];
+        updatedSecondary[slotIndex - 1] = newPhotoUrl;
+        onChange(currentValue, updatedSecondary);
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.warn('[PhotoPicker] Photo optimization failed:', err);
+      if (!isMountedRef.current) return;
+      setPhotoError(
+        err instanceof ImageOptimizationError
+          ? err.message
+          : 'Please choose a JPG, PNG, or supported image.'
+      );
+    } finally {
+      if (isMountedRef.current) setProcessingSlot(null);
+    }
   };
 
   const handleRemovePhoto = (slotIndex: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isProcessing) return;
+    setPhotoError(null);
     if (slotIndex === 0) {
       onChange('', secondaryPhotos);
     } else {
@@ -64,6 +104,7 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
   const handleDrop = (e: React.DragEvent, slotIndex: number) => {
     e.preventDefault();
     setDraggedSlot(null);
+    if (isProcessing) return;
     if (e.dataTransfer.files?.[0]) {
       handleFileProcess(e.dataTransfer.files[0], slotIndex);
     }
@@ -97,6 +138,7 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
           onDragLeave={() => setDraggedSlot(null)}
           onDrop={(e) => handleDrop(e, 0)}
           onClick={() => handleOpenPicker(0)}
+          aria-busy={processingSlot === 0}
           className={`relative w-44 h-56 sm:w-48 sm:h-60 rounded-3xl border-3 cursor-pointer overflow-hidden transition-all duration-200 flex flex-col items-center justify-center ${
             draggedSlot === 0
               ? 'border-[#894EFF] bg-[#D4CEEF] shadow-[4px_4px_0px_#894EFF]'
@@ -162,7 +204,27 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
               </span>
             </div>
           )}
+
+          {/* Optimization in progress */}
+          {processingSlot === 0 && (
+            <div className="absolute inset-0 z-10 bg-white/75 flex flex-col items-center justify-center rounded-[21px]">
+              <Loader2 size={26} strokeWidth={3} className="text-[#894EFF] animate-spin" />
+              <span className="text-[10px] font-black text-[#251436] mt-1.5 uppercase tracking-wider">
+                Optimizing…
+              </span>
+            </div>
+          )}
         </motion.div>
+
+        {photoError && (
+          <p
+            id="photo-picker-error"
+            role="alert"
+            className="mt-2.5 max-w-[260px] text-center text-[11px] font-bold text-[#E0245E]"
+          >
+            {photoError}
+          </p>
+        )}
       </div>
 
       {/* 2. THREE SECONDARY PHOTO SLOTS (ONE HORIZONTAL ROW) */}
@@ -185,6 +247,7 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
                 onDragLeave={() => setDraggedSlot(null)}
                 onDrop={(e) => handleDrop(e, slotNumber)}
                 onClick={() => handleOpenPicker(slotNumber)}
+                aria-busy={processingSlot === slotNumber}
                 className={`relative aspect-square w-full rounded-2xl border-2 cursor-pointer overflow-hidden transition-all duration-200 flex flex-col items-center justify-center ${
                   draggedSlot === slotNumber
                     ? 'border-[#894EFF] bg-[#D4CEEF] shadow-[3px_3px_0px_#894EFF]'
@@ -217,6 +280,13 @@ export const PhotoPicker: React.FC<PhotoPickerProps> = ({
                     <div className="w-8 h-8 rounded-xl bg-[#D4CEEF] border-2 border-[#251436] flex items-center justify-center shadow-[1.5px_1.5px_0px_#251436]">
                       <Plus size={18} strokeWidth={3} className="text-[#894EFF]" />
                     </div>
+                  </div>
+                )}
+
+                {/* Optimization in progress */}
+                {processingSlot === slotNumber && (
+                  <div className="absolute inset-0 z-10 bg-white/75 flex items-center justify-center rounded-[14px]">
+                    <Loader2 size={18} strokeWidth={3} className="text-[#894EFF] animate-spin" />
                   </div>
                 )}
               </motion.div>

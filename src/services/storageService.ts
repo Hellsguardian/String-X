@@ -14,7 +14,8 @@ export const storageService = {
     fileNamePrefix = 'photo'
   ): Promise<ServiceResult<{ publicUrl: string; path: string }>> {
     try {
-      const ext = fileOrBlob.type.includes('png') ? 'png' : 'jpg';
+      const mimeType = (fileOrBlob.type || '').toLowerCase();
+      const ext = mimeType.includes('webp') ? 'webp' : mimeType.includes('png') ? 'png' : 'jpg';
       const path = `${userId}/${fileNamePrefix}_${Date.now()}.${ext}`;
 
       if (isSupabaseConfigured) {
